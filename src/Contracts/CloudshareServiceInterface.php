@@ -1,0 +1,60 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Hwkdo\IntranetAppCloudshare\Contracts;
+
+use Illuminate\Contracts\Auth\Authenticatable;
+
+interface CloudshareServiceInterface
+{
+    /**
+     * @return list<array{
+     *     name: string,
+     *     id: string,
+     *     url: string,
+     *     created_at: string,
+     *     password: bool,
+     *     has_stored_password: bool,
+     *     expiration: ?string,
+     *     writeable: bool
+     * }>
+     */
+    public function listShares(Authenticatable $user): array;
+
+    /**
+     * @param  array{name: string, password?: ?string, expires_at: string, guest_upload: bool}  $data
+     */
+    public function createShare(Authenticatable $user, array $data): bool;
+
+    /**
+     * @return list<array{file: string, href: string, modified: string, size: int|string, id: string}>
+     */
+    public function listFiles(Authenticatable $user, string $folderName): array;
+
+    public function uploadFile(Authenticatable $user, string $folderName, string $localPath, string $originalFilename): mixed;
+
+    public function deleteItem(Authenticatable $user, string $itemId): mixed;
+
+    /**
+     * @return array{quota_free: int|float|null, quota_used: int|float|null, quota_total: int|float|null, quota_relative: float}|null
+     */
+    public function quota(Authenticatable $user): ?array;
+
+    /**
+     * @param  array{name: string, url: string, password?: bool, has_stored_password?: bool, expiration?: ?string, writeable?: bool}  $share
+     */
+    public function previewShareMail(Authenticatable $user, array $share, string $subject): string;
+
+    /**
+     * @param  array{name: string, id?: string, url: string, password?: bool, has_stored_password?: bool, expiration?: ?string, writeable?: bool}  $share
+     * @return array{bitwarden_sent: bool, bitwarden_error: ?string}
+     */
+    public function sendShareMail(
+        Authenticatable $user,
+        array $share,
+        string $email,
+        string $subject,
+        bool $sendPasswordViaBitwarden = false,
+    ): array;
+}

@@ -1,0 +1,574 @@
+<?php
+
+use Flux\Flux;
+use Hwkdo\IntranetAppCloudshare\Contracts\CloudshareServiceInterface;
+use Hwkdo\IntranetAppCloudshare\Data\AppSettings;
+use Hwkdo\IntranetAppCloudshare\Models\IntranetAppCloudshareSettings;
+use Illuminate\Support\Facades\Auth;
+use Livewire\Attributes\Title;
+use Livewire\Component;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Livewire\WithFileUploads;
+
+new #[Title('Cloudshare - Freigaben')] class extends Component
+{
+    use WithFileUploads;
+
+    /** @var list<array{name: string, id: string, url: string, created_at: string, password: bool, has_stored_password: bool, expiration: ?string, writeable: bool}> */
+    public array $shares = [];
+
+    /** @var array{quota_free: int|float|null, quota_used: int|float|null, quota_total: int|float|null, quota_relative: float}|null */
+    public ?array $quota = null;
+
+    /** @var array<string, list<array{file: string, href: string, modified: string, size: int|string, id: string}>> */
+    public array $filesByShareId = [];
+
+    public bool $showCreateModal = false;
+
+    public bool $showUploadModal = false;
+
+    public bool $showShareModal = false;
+
+    public string $newName = '';
+
+    public string $newPassword = '';
+
+    public string $newExpiresAt = '';
+
+    public bool $newGuestUpload = false;
+
+    public string $uploadFolderName = '';
+
+    public string $uploadShareId = '';
+
+    public ?TemporaryUploadedFile $uploadFile = null;
+
+    public string $shareIdForMail = '';
+
+    public string $shareMailSubject = 'Ein Cloud Ordner wurde für Sie freigegeben';
+
+    public string $shareMailEmail = '';
+
+    public string $shareMailPreview = '';
+
+    public bool $shareMailSent = false;
+
+    public bool $sendPasswordViaBitwarden = false;
+
+    public string $errorMessage = '';
+
+    public string $hinweisText = '';
+
+    public function mount(CloudshareServiceInterface $cloudshare): void
+    {
+        $settings = IntranetAppCloudshareSettings::query()->first();
+        $appSettings = $settings?->settings instanceof AppSettings
+            ? $settings->settings
+            : new AppSettings;
+        $this->hinweisText = $appSettings->hinweisText;
+
+        $this->refreshData($cloudshare);
+    }
+
+    public function refreshData(?CloudshareServiceInterface $cloudshare = null): void
+    {
+        $cloudshare ??= app(CloudshareServiceInterface::class);
+        $user = Auth::user();
+
+        try {
+            $this->shares = $cloudshare->listShares($user);
+            $this->quota = $cloudshare->quota($user);
+            $this->errorMessage = '';
+
+            foreach ($this->shares as $share) {
+                $this->filesByShareId[$share['id']] = $cloudshare->listFiles($user, $share['name']);
+            }
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'OneDrive konnte nicht geladen werden: '.$e->getMessage();
+            $this->shares = [];
+            $this->quota = null;
+        }
+    }
+
+    public function openCreateModal(): void
+    {
+        $this->resetCreateForm();
+        $this->showCreateModal = true;
+    }
+
+    public function createShare(CloudshareServiceInterface $cloudshare): void
+    {
+        $this->validate([
+            'newName' => ['required', 'string', 'max:200'],
+            'newPassword' => ['nullable', 'string', 'min:8'],
+            'newExpiresAt' => ['required', 'date', 'after:now'],
+            'newGuestUpload' => ['boolean'],
+        ], [
+            'newExpiresAt.after' => 'Die Gültigkeit muss in der Zukunft liegen.',
+        ], [
+            'newName' => 'Name',
+            'newPassword' => 'Passwort',
+            'newExpiresAt' => 'Gültigkeit',
+            'newGuestUpload' => 'Gast-Upload',
+        ]);
+
+        try {
+            $cloudshare->createShare(Auth::user(), [
+                'name' => $this->newName,
+                'password' => $this->newPassword !== '' ? $this->newPassword : null,
+                'expires_at' => $this->newExpiresAt,
+                'guest_upload' => $this->newGuestUpload,
+            ]);
+
+            $this->showCreateModal = false;
+            $this->resetCreateForm();
+            $this->refreshData($cloudshare);
+            Flux::toast(variant: 'success', text: 'Freigabe wurde erstellt.');
+        } catch (\Throwable $e) {
+            $this->addError('newName', $e->getMessage());
+        }
+    }
+
+    public function openUploadModal(string $shareId, string $folderName): void
+    {
+        if ($this->quotaRelative() >= 90) {
+            return;
+        }
+
+        $this->uploadShareId = $shareId;
+        $this->uploadFolderName = $folderName;
+        $this->uploadFile = null;
+        $this->resetErrorBag('uploadFile');
+        $this->showUploadModal = true;
+    }
+
+    public function uploadToShare(CloudshareServiceInterface $cloudshare): void
+    {
+        $maxKb = (int) config('intranet-app-cloudshare.max_upload_kb', 256000);
+
+        $this->validate([
+            'uploadFile' => ['required', 'file', 'max:'.$maxKb],
+            'uploadFolderName' => ['required', 'string'],
+        ], [], [
+            'uploadFile' => 'Datei',
+        ]);
+
+        try {
+            $cloudshare->uploadFile(
+                Auth::user(),
+                $this->uploadFolderName,
+                $this->uploadFile->getRealPath(),
+                $this->uploadFile->getClientOriginalName(),
+            );
+
+            $this->showUploadModal = false;
+            $this->uploadFile = null;
+            $this->refreshData($cloudshare);
+            Flux::toast(variant: 'success', text: 'Datei wurde hochgeladen.');
+        } catch (\Throwable $e) {
+            $this->addError('uploadFile', $e->getMessage());
+        }
+    }
+
+    public function deleteItem(CloudshareServiceInterface $cloudshare, string $itemId): void
+    {
+        try {
+            $cloudshare->deleteItem(Auth::user(), $itemId);
+            $this->refreshData($cloudshare);
+            Flux::toast(variant: 'success', text: 'Element wurde gelöscht.');
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'Löschen fehlgeschlagen: '.$e->getMessage();
+        }
+    }
+
+    public function openShareModal(CloudshareServiceInterface $cloudshare, string $shareId): void
+    {
+        $share = collect($this->shares)->firstWhere('id', $shareId);
+
+        if (! $share) {
+            return;
+        }
+
+        $this->shareIdForMail = $shareId;
+        $this->shareMailSubject = 'Ein Cloud Ordner wurde für Sie freigegeben';
+        $this->shareMailEmail = '';
+        $this->shareMailSent = false;
+        $this->sendPasswordViaBitwarden = false;
+        $this->resetErrorBag(['shareMailEmail', 'shareMailSubject', 'sendPasswordViaBitwarden']);
+
+        try {
+            $this->shareMailPreview = $cloudshare->previewShareMail(
+                Auth::user(),
+                $share,
+                $this->shareMailSubject,
+            );
+            $this->showShareModal = true;
+        } catch (\Throwable $e) {
+            $this->errorMessage = 'Vorschau fehlgeschlagen: '.$e->getMessage();
+        }
+    }
+
+    public function updatedShareMailSubject(): void
+    {
+        $share = collect($this->shares)->firstWhere('id', $this->shareIdForMail);
+
+        if (! $share || ! $this->showShareModal) {
+            return;
+        }
+
+        try {
+            $this->shareMailPreview = app(CloudshareServiceInterface::class)->previewShareMail(
+                Auth::user(),
+                $share,
+                $this->shareMailSubject,
+            );
+        } catch (\Throwable) {
+            // Vorschau optional aktualisieren
+        }
+    }
+
+    public function sendShareMail(CloudshareServiceInterface $cloudshare): void
+    {
+        $this->validate([
+            'shareMailEmail' => ['required', 'email'],
+            'shareMailSubject' => ['required', 'string', 'max:255'],
+        ], [], [
+            'shareMailEmail' => 'Empfänger',
+            'shareMailSubject' => 'Betreff',
+        ]);
+
+        $share = collect($this->shares)->firstWhere('id', $this->shareIdForMail);
+
+        if (! $share) {
+            return;
+        }
+
+        try {
+            $result = $cloudshare->sendShareMail(
+                Auth::user(),
+                $share,
+                $this->shareMailEmail,
+                $this->shareMailSubject,
+                $this->sendPasswordViaBitwarden,
+            );
+            $this->shareMailSent = true;
+            $this->shareMailEmail = '';
+
+            if ($result['bitwarden_error']) {
+                Flux::toast(variant: 'warning', text: $result['bitwarden_error']);
+            } elseif ($result['bitwarden_sent']) {
+                Flux::toast(variant: 'success', text: 'Freigabe-Mail und Bitwarden-Send-Mail wurden gesendet.');
+            } else {
+                Flux::toast(variant: 'success', text: 'E-Mail wurde gesendet.');
+            }
+        } catch (\Throwable $e) {
+            $this->addError('shareMailEmail', $e->getMessage());
+        }
+    }
+
+    public function quotaRelative(): float
+    {
+        return (float) ($this->quota['quota_relative'] ?? 0);
+    }
+
+    public function formatBytes(int|float|null $bytes): string
+    {
+        $bytes = (float) ($bytes ?? 0);
+
+        if ($bytes >= 1024 * 1024 * 1024) {
+            return number_format($bytes / 1024 / 1024 / 1024, 2, ',', '.').' GB';
+        }
+
+        if ($bytes >= 1024 * 1024) {
+            return number_format($bytes / 1024 / 1024, 2, ',', '.').' MB';
+        }
+
+        return number_format($bytes / 1024, 2, ',', '.').' KB';
+    }
+
+    public function formatFileSize(int|float|string|null $bytes): string
+    {
+        $bytes = (float) ($bytes ?? 0);
+
+        if ($bytes >= 1024 * 1024) {
+            return number_format($bytes / 1024 / 1024, 2, ',', '.').' MB';
+        }
+
+        return number_format($bytes / 1024, 2, ',', '.').' KB';
+    }
+
+    /**
+     * @return list<array{file: string, href: string, modified: string, size: int|string, id: string}>
+     */
+    public function filesForShare(string $shareId): array
+    {
+        return $this->filesByShareId[$shareId] ?? [];
+    }
+
+    public function currentShareForMail(): ?array
+    {
+        $share = collect($this->shares)->firstWhere('id', $this->shareIdForMail);
+
+        return is_array($share) ? $share : null;
+    }
+
+    public function currentShareHasStoredPassword(): bool
+    {
+        return (bool) ($this->currentShareForMail()['has_stored_password'] ?? false);
+    }
+
+    public function currentShareHasPasswordFlag(): bool
+    {
+        return (bool) ($this->currentShareForMail()['password'] ?? false);
+    }
+
+    protected function resetCreateForm(): void
+    {
+        $this->newName = '';
+        $this->newPassword = '';
+        $this->newExpiresAt = '';
+        $this->newGuestUpload = false;
+        $this->resetErrorBag(['newName', 'newPassword', 'newExpiresAt', 'newGuestUpload']);
+    }
+};
+?>
+
+<div>
+    <x-intranet-app-cloudshare::cloudshare-layout heading="Cloudshare" subheading="Temporäre OneDrive-Freigaben für Externe">
+        <div class="space-y-6">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <flux:heading size="lg">Freigaben</flux:heading>
+                <flux:button variant="primary" icon="plus" wire:click="openCreateModal">Neu</flux:button>
+            </div>
+
+            @if ($errorMessage)
+                <flux:callout variant="danger" icon="exclamation-triangle">
+                    <flux:callout.heading>Fehler</flux:callout.heading>
+                    <flux:callout.text>{{ $errorMessage }}</flux:callout.text>
+                </flux:callout>
+            @endif
+
+            @if ($hinweisText !== '')
+                <flux:callout icon="information-circle">
+                    <flux:callout.text>{{ $hinweisText }}</flux:callout.text>
+                </flux:callout>
+            @endif
+
+            @if ($quota)
+                @php
+                    $relative = $this->quotaRelative();
+                    $quotaVariant = $relative >= 90 ? 'danger' : ($relative >= 70 ? 'warning' : 'success');
+                    $quotaText = $relative >= 90
+                        ? 'Es stehen nur noch '.$this->formatBytes($quota['quota_free']).' zur Verfügung. Keine Uploads möglich.'
+                        : ($relative >= 70
+                            ? 'Es stehen nur noch '.$this->formatBytes($quota['quota_free']).' zur Verfügung.'
+                            : 'Es stehen noch '.$this->formatBytes($quota['quota_free']).' zur Verfügung.');
+                @endphp
+                <flux:callout :variant="$quotaVariant" icon="circle-stack">
+                    <flux:callout.heading>OneDrive-Speicher</flux:callout.heading>
+                    <flux:callout.text>
+                        Sie verwenden aktuell {{ $this->formatBytes($quota['quota_used']) }} von insgesamt
+                        {{ $this->formatBytes($quota['quota_total']) }} Speicherplatz
+                        ({{ number_format($relative, 2, ',', '.') }} %).
+                        {{ $quotaText }}
+                    </flux:callout.text>
+                </flux:callout>
+            @endif
+
+            <div wire:loading.flex wire:target="refreshData,createShare,uploadToShare,deleteItem" class="hidden items-center gap-2 text-sm text-zinc-500">
+                <flux:icon.arrow-path class="size-4 animate-spin" />
+                Wird geladen …
+            </div>
+
+            @if (count($shares) === 0 && $errorMessage === '')
+                <flux:card class="text-center py-10">
+                    <flux:heading size="md">Sie haben noch keine Freigaben</flux:heading>
+                    <flux:text class="mt-2">Legen Sie eine neue Freigabe an, um Dateien mit Externen zu teilen.</flux:text>
+                </flux:card>
+            @endif
+
+            <div class="space-y-4">
+                @foreach ($shares as $share)
+                    <flux:card class="space-y-4">
+                        <div class="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                                <flux:heading size="md">{{ $share['name'] }}</flux:heading>
+                                <flux:text class="text-sm">erstellt {{ $share['created_at'] }}</flux:text>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                @if ($this->quotaRelative() < 90)
+                                    <flux:button size="sm" variant="primary" icon="arrow-up-tray" wire:click="openUploadModal('{{ $share['id'] }}', {{ \Illuminate\Support\Js::from($share['name']) }})">
+                                        Upload
+                                    </flux:button>
+                                @endif
+                                <flux:button size="sm" variant="ghost" icon="envelope" wire:click="openShareModal({{ \Illuminate\Support\Js::from($share['id']) }})">
+                                    Teilen
+                                </flux:button>
+                                <flux:button
+                                    size="sm"
+                                    variant="danger"
+                                    icon="trash"
+                                    wire:click="deleteItem({{ \Illuminate\Support\Js::from($share['id']) }})"
+                                    wire:confirm="Freigabe und alle Dateien wirklich löschen?"
+                                >
+                                    Löschen
+                                </flux:button>
+                            </div>
+                        </div>
+
+                        <div class="space-y-2">
+                            <flux:text>
+                                Link:
+                                <a href="{{ $share['url'] }}" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline dark:text-blue-400">
+                                    {{ $share['url'] }}
+                                </a>
+                            </flux:text>
+                            <div class="flex flex-wrap gap-2">
+                                @if ($share['password'])
+                                    <flux:badge color="red">Passwortgeschützt</flux:badge>
+                                @endif
+                                @if (is_string($share['expiration']))
+                                    <flux:badge color="amber">Gültig bis {{ $share['expiration'] }}</flux:badge>
+                                @endif
+                                @if ($share['writeable'])
+                                    <flux:badge color="blue">Gast-Upload</flux:badge>
+                                @endif
+                            </div>
+                        </div>
+
+                        @if (count($this->filesForShare($share['id'])) > 0)
+                            <div>
+                                <flux:heading size="sm" class="mb-2">Dateien</flux:heading>
+                                <flux:table>
+                                    <flux:table.columns>
+                                        <flux:table.column>Name</flux:table.column>
+                                        <flux:table.column>Größe</flux:table.column>
+                                        <flux:table.column></flux:table.column>
+                                    </flux:table.columns>
+                                    <flux:table.rows>
+                                        @foreach ($this->filesForShare($share['id']) as $file)
+                                            <flux:table.row wire:key="file-{{ $file['id'] }}">
+                                                <flux:table.cell>{{ $file['file'] }}</flux:table.cell>
+                                                <flux:table.cell>{{ $this->formatFileSize($file['size']) }}</flux:table.cell>
+                                                <flux:table.cell class="text-right">
+                                                    <div class="flex justify-end gap-2">
+                                                        <flux:button size="sm" variant="ghost" icon="arrow-down-tray" :href="$file['href']" target="_blank" />
+                                                        <flux:button
+                                                            size="sm"
+                                                            variant="danger"
+                                                            icon="trash"
+                                                            wire:click="deleteItem({{ \Illuminate\Support\Js::from($file['id']) }})"
+                                                            wire:confirm="Datei wirklich löschen?"
+                                                        />
+                                                    </div>
+                                                </flux:table.cell>
+                                            </flux:table.row>
+                                        @endforeach
+                                    </flux:table.rows>
+                                </flux:table>
+                            </div>
+                        @else
+                            <flux:text class="text-sm text-zinc-500">Keine Dateien</flux:text>
+                        @endif
+                    </flux:card>
+                @endforeach
+            </div>
+        </div>
+
+        <flux:modal wire:model="showCreateModal" class="md:w-[32rem] space-y-6">
+            <div>
+                <flux:heading size="lg">Neue Freigabe</flux:heading>
+                <flux:text class="mt-1">Ordner in OneDrive anlegen und anonymen Link erzeugen.</flux:text>
+            </div>
+
+            <form wire:submit="createShare" class="space-y-4">
+                <flux:input wire:model="newName" label="Name" required />
+                <flux:input wire:model="newPassword" label="Passwort" type="text" placeholder="Optional, mindestens 8 Zeichen" />
+                <flux:input wire:model="newExpiresAt" label="Gültigkeit" type="datetime-local" required min="{{ now()->format('Y-m-d\TH:i') }}" />
+                <flux:error name="newExpiresAt" />                <flux:checkbox wire:model="newGuestUpload" label="Gast-Upload erlauben" />
+
+                <div class="flex justify-end gap-2">
+                    <flux:button type="button" variant="ghost" wire:click="$set('showCreateModal', false)">Abbrechen</flux:button>
+                    <flux:button type="submit" variant="primary">Absenden</flux:button>
+                </div>
+            </form>
+        </flux:modal>
+
+        <flux:modal wire:model="showUploadModal" class="md:w-[28rem] space-y-6">
+            <div>
+                <flux:heading size="lg">Upload</flux:heading>
+                <flux:text class="mt-1">Datei in die Freigabe „{{ $uploadFolderName }}“ hochladen.</flux:text>
+            </div>
+
+            <form wire:submit="uploadToShare" class="space-y-4">
+                <flux:field>
+                    <flux:label>Datei</flux:label>
+                    <input type="file" wire:model="uploadFile" class="block w-full text-sm" />
+                    <flux:error name="uploadFile" />
+                </flux:field>
+
+                <div wire:loading wire:target="uploadFile" class="text-sm text-zinc-500">Datei wird vorbereitet …</div>
+
+                <div class="flex justify-end gap-2">
+                    <flux:button type="button" variant="ghost" wire:click="$set('showUploadModal', false)">Abbrechen</flux:button>
+                    <flux:button type="submit" variant="primary" wire:loading.attr="disabled">Hochladen</flux:button>
+                </div>
+            </form>
+        </flux:modal>
+
+        <flux:modal wire:model="showShareModal" class="w-full max-w-5xl space-y-6 md:w-[56rem]">
+            <div>
+                <flux:heading size="lg">Freigabe teilen</flux:heading>
+                <flux:text class="mt-1">E-Mail-Vorschau und Versand an einen Empfänger.</flux:text>
+            </div>
+
+            @if ($shareMailPreview !== '')
+                <div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
+                    <iframe
+                        title="E-Mail-Vorschau"
+                        src="data:text/html;charset=utf-8;base64,{{ base64_encode($shareMailPreview) }}"
+                        class="h-[28rem] w-full bg-white"
+                        wire:key="mail-preview-{{ md5($shareMailPreview) }}"
+                    ></iframe>
+                </div>
+            @endif
+
+            @if ($shareMailSent)
+                <flux:callout variant="success" icon="check-circle">
+                    <flux:callout.text>E-Mail gesendet</flux:callout.text>
+                </flux:callout>
+            @endif
+
+            <form wire:submit="sendShareMail" class="space-y-4">
+                <flux:input wire:model.live.debounce.500ms="shareMailSubject" label="Betreff" required />
+                <flux:input wire:model="shareMailEmail" label="Empfänger" type="email" required />
+
+                @if ($this->currentShareHasStoredPassword())
+                    <flux:checkbox
+                        wire:model.live="sendPasswordViaBitwarden"
+                        label="Passwort per Bitwarden Send sicher übermitteln"
+                        description="Zusätzlich zur Freigabe-Mail wird eine separate Mail mit Bitwarden-Send-Link versendet."
+                    />
+                    @if ($sendPasswordViaBitwarden)
+                        <flux:callout icon="shield-check">
+                            <flux:callout.text>
+                                Das Passwort wird separat per Bitwarden Send übermittelt (nicht in der Freigabe-Mail).
+                            </flux:callout.text>
+                        </flux:callout>
+                    @endif
+                @elseif ($this->currentShareHasPasswordFlag())
+                    <flux:callout variant="warning" icon="exclamation-triangle">
+                        <flux:callout.text>
+                            Kein hinterlegtes Passwort — Bitwarden Send ist für diese ältere Freigabe nicht verfügbar.
+                        </flux:callout.text>
+                    </flux:callout>
+                @endif
+
+                <div class="flex justify-end gap-2">
+                    <flux:button type="button" variant="ghost" wire:click="$set('showShareModal', false)">Schließen</flux:button>
+                    <flux:button type="submit" variant="primary">Senden</flux:button>
+                </div>
+            </form>
+        </flux:modal>
+    </x-intranet-app-cloudshare::cloudshare-layout>
+</div>
