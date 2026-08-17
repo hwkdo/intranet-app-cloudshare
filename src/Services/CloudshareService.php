@@ -11,9 +11,11 @@ use Hwkdo\IntranetAppCloudshare\Mail\CloudsharePasswordSendMail;
 use Hwkdo\IntranetAppCloudshare\Mail\CloudshareSharedMail;
 use Hwkdo\IntranetAppCloudshare\Models\CloudshareShare;
 use Hwkdo\IntranetAppCloudshare\Models\IntranetAppCloudshareSettings;
+use Hwkdo\MsGraphLaravel\Interfaces\MsGraphDelegatedOneDriveFactoryInterface;
 use Hwkdo\MsGraphLaravel\Interfaces\MsGraphOneDriveServiceInterface;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Mail;
 use InvalidArgumentException;
 use RuntimeException;
@@ -22,31 +24,32 @@ use Throwable;
 class CloudshareService implements CloudshareServiceInterface
 {
     public function __construct(
-        protected MsGraphOneDriveServiceInterface $oneDrive,
+        protected MsGraphDelegatedOneDriveFactoryInterface $oneDriveFactory,
     ) {}
 
     public function listShares(Authenticatable $user): array
     {
         $upn = $this->upn($user);
         $root = $this->rootFolder();
+        $oneDrive = $this->driveFor($user);
 
-        $this->oneDrive->makeFolder($upn, $root);
+        $oneDrive->makeFolder($upn, $root);
 
-        $items = $this->oneDrive->getUserDriveContent($upn, $root) ?? [];
+        $items = $oneDrive->getUserDriveContent($upn, $root) ?? [];
 
         $shares = collect($items)->filter(function ($item): bool {
             return (bool) $item->getFolder() && (bool) $item->getShared();
         });
 
-        $storedIds = CloudshareShare::query()
+        $storedByItemId = CloudshareShare::query()
             ->where('user_id', $user->getAuthIdentifier())
-            ->pluck('onedrive_item_id')
-            ->all();
+            ->get()
+            ->keyBy('onedrive_item_id');
 
         $result = [];
 
         foreach ($shares as $share) {
-            $shareData = $this->mapShare($share, $upn, $storedIds);
+            $shareData = $this->mapShare($share, $upn, $storedByItemId, $oneDrive);
 
             if ($shareData !== null) {
                 $result[] = $shareData;
@@ -56,7 +59,7 @@ class CloudshareService implements CloudshareServiceInterface
         return $result;
     }
 
-    public function createShare(Authenticatable $user, array $data): bool
+    public function createShare(Authenticatable $user, array $data): array
     {
         $name = trim((string) ($data['name'] ?? ''));
 
@@ -85,41 +88,73 @@ class CloudshareService implements CloudshareServiceInterface
         $guestUpload = (bool) ($data['guest_upload'] ?? false);
         $upn = $this->upn($user);
         $path = $this->rootFolder().'/'.$name;
+        $oneDrive = $this->driveFor($user);
 
-        $folder = $this->oneDrive->makeFolder($upn, $path);
-        $folderId = $folder->getId();
+        $folder = $oneDrive->makeFolder($upn, $path);
+        $folderId = (string) $folder->getId();
 
         if ($guestUpload) {
-            $url = $this->oneDrive->shareReadWrite($upn, $folderId, $password, $expiresAt);
+            $url = $oneDrive->shareReadWrite($upn, $folderId, $password, $expiresAt);
         } else {
-            $url = $this->oneDrive->shareReadOnly($upn, $folderId, $password, $expiresAt);
+            $url = $oneDrive->shareReadOnly($upn, $folderId, $password, $expiresAt);
         }
 
-        if (! $url) {
-            return false;
+        if (! is_string($url) || $url === '') {
+            throw new RuntimeException('Die Freigabe konnte nicht erstellt werden.');
         }
 
-        if ($password !== null) {
-            CloudshareShare::query()->updateOrCreate(
-                [
-                    'user_id' => $user->getAuthIdentifier(),
-                    'onedrive_item_id' => $folderId,
-                ],
-                [
-                    'folder_name' => $name,
-                    'password' => $password,
-                ],
-            );
+        CloudshareShare::query()->updateOrCreate(
+            [
+                'user_id' => $user->getAuthIdentifier(),
+                'onedrive_item_id' => $folderId,
+            ],
+            [
+                'folder_name' => $name,
+                'password' => $password,
+            ],
+        );
+
+        $storedByItemId = CloudshareShare::query()
+            ->where('user_id', $user->getAuthIdentifier())
+            ->get()
+            ->keyBy('onedrive_item_id');
+
+        $shareData = $this->mapShare($folder, $upn, $storedByItemId, $oneDrive);
+
+        if ($shareData !== null) {
+            $shareData['url'] = $url;
+
+            return $shareData;
         }
 
-        return true;
+        return [
+            'name' => $name,
+            'id' => $folderId,
+            'url' => $url,
+            'created_at' => now()->format('d.m.Y H:i'),
+            'password' => $password !== null,
+            'has_stored_password' => $password !== null,
+            'expiration' => Carbon::parse($expiresAt)->format('d.m.Y H:i').' Uhr',
+            'writeable' => $guestUpload,
+        ];
+    }
+
+    public function findShare(Authenticatable $user, string $id): ?array
+    {
+        foreach ($this->listShares($user) as $share) {
+            if ($share['id'] === $id) {
+                return $share;
+            }
+        }
+
+        return null;
     }
 
     public function listFiles(Authenticatable $user, string $folderName): array
     {
         $upn = $this->upn($user);
         $path = $this->rootFolder().'/'.$folderName;
-        $items = $this->oneDrive->getUserDriveContent($upn, $path) ?? [];
+        $items = $this->driveFor($user)->getUserDriveContent($upn, $path) ?? [];
 
         $files = [];
 
@@ -143,15 +178,16 @@ class CloudshareService implements CloudshareServiceInterface
         $upn = $this->upn($user);
         $subdir = $this->rootFolder().'/'.$folderName;
 
-        return $this->oneDrive->uploadItemToUserDrive($upn, $originalFilename, $localPath, $subdir);
+        return $this->driveFor($user)->uploadItemToUserDrive($upn, $originalFilename, $localPath, $subdir);
     }
 
     public function deleteItem(Authenticatable $user, string $itemId): mixed
     {
         $upn = $this->upn($user);
-        $driveId = $this->oneDrive->getUserDrive($upn)->getId();
+        $oneDrive = $this->driveFor($user);
+        $driveId = $oneDrive->getUserDrive($upn)->getId();
 
-        $result = $this->oneDrive->deleteItemById($driveId, $itemId);
+        $result = $oneDrive->deleteItemById($driveId, $itemId);
 
         CloudshareShare::query()
             ->where('user_id', $user->getAuthIdentifier())
@@ -164,7 +200,7 @@ class CloudshareService implements CloudshareServiceInterface
     public function quota(Authenticatable $user): ?array
     {
         $upn = $this->upn($user);
-        $drive = $this->oneDrive->getUserDrive($upn);
+        $drive = $this->driveFor($user)->getUserDrive($upn);
 
         if (! $drive) {
             return null;
@@ -213,6 +249,17 @@ class CloudshareService implements CloudshareServiceInterface
             ];
         }
 
+        $result = $this->sendPasswordViaBitwarden($user, $share, $email);
+
+        if ($result['bitwarden_error'] !== null) {
+            $result['bitwarden_error'] = 'Freigabe-Mail wurde gesendet, '.$result['bitwarden_error'];
+        }
+
+        return $result;
+    }
+
+    public function sendPasswordViaBitwarden(Authenticatable $user, array $share, string $email): array
+    {
         $shareId = (string) ($share['id'] ?? '');
         $stored = CloudshareShare::query()
             ->where('user_id', $user->getAuthIdentifier())
@@ -251,9 +298,14 @@ class CloudshareService implements CloudshareServiceInterface
         } catch (Throwable $e) {
             return [
                 'bitwarden_sent' => false,
-                'bitwarden_error' => 'Freigabe-Mail wurde gesendet, Bitwarden Send fehlgeschlagen: '.$e->getMessage(),
+                'bitwarden_error' => 'Bitwarden Send fehlgeschlagen: '.$e->getMessage(),
             ];
         }
+    }
+
+    protected function driveFor(Authenticatable $user): MsGraphOneDriveServiceInterface
+    {
+        return $this->oneDriveFactory->forUser($user);
     }
 
     protected function upn(Authenticatable $user): string
@@ -282,7 +334,7 @@ class CloudshareService implements CloudshareServiceInterface
     }
 
     /**
-     * @param  list<string>  $storedIds
+     * @param  Collection<string, CloudshareShare>  $storedByItemId
      * @return array{
      *     name: string,
      *     id: string,
@@ -294,9 +346,9 @@ class CloudshareService implements CloudshareServiceInterface
      *     writeable: bool
      * }|null
      */
-    protected function mapShare(mixed $share, string $upn, array $storedIds = []): ?array
+    protected function mapShare(mixed $share, string $upn, Collection $storedByItemId, MsGraphOneDriveServiceInterface $oneDrive): ?array
     {
-        $perms = $this->oneDrive->getDriveItemPermissions($upn, $share->getId(), 'anonymous');
+        $perms = $oneDrive->getDriveItemPermissions($upn, $share->getId(), 'anonymous');
         $perm = collect($perms)->first();
 
         if (! $perm || ! $perm->getLink()) {
@@ -312,37 +364,26 @@ class CloudshareService implements CloudshareServiceInterface
         $roles = $perm->getRoles() ?? [];
         $itemId = (string) $share->getId();
         $hasPassword = (bool) $perm->getHasPassword();
+        $stored = $storedByItemId->get($itemId);
+        $storedPassword = $stored?->password;
+        $hasStoredPassword = $hasPassword && is_string($storedPassword) && $storedPassword !== '';
 
         return [
             'name' => $share->getName(),
             'id' => $itemId,
-            'url' => $this->resolveShareUrl($perm, $upn, $itemId, $roles),
+            'url' => $this->shareUrlFromPermission($perm),
             'created_at' => $created ? Carbon::parse($created)->format('d.m.Y H:i') : '',
             'password' => $hasPassword,
-            'has_stored_password' => $hasPassword && in_array($itemId, $storedIds, true),
+            'has_stored_password' => $hasStoredPassword,
             'expiration' => $expiration,
             'writeable' => in_array('write', $roles, true),
         ];
     }
 
-    /**
-     * Graph list-permissions liefert webUrl oft nicht (Secret, nur für Caller mit create-Recht).
-     * createLink ist idempotent und gibt den bestehenden anonymen Link inklusive URL zurück.
-     *
-     * @param  list<string>  $roles
-     */
-    protected function resolveShareUrl(mixed $perm, string $upn, string $itemId, array $roles): string
+    protected function shareUrlFromPermission(mixed $perm): string
     {
         $url = $perm->getLink()?->getWebUrl();
 
-        if (is_string($url) && $url !== '') {
-            return $url;
-        }
-
-        $resolved = in_array('write', $roles, true)
-            ? $this->oneDrive->shareReadWrite($upn, $itemId)
-            : $this->oneDrive->shareReadOnly($upn, $itemId);
-
-        return is_string($resolved) ? $resolved : '';
+        return is_string($url) ? $url : '';
     }
 }

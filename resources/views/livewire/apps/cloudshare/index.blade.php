@@ -4,6 +4,7 @@ use Flux\Flux;
 use Hwkdo\IntranetAppCloudshare\Contracts\CloudshareServiceInterface;
 use Hwkdo\IntranetAppCloudshare\Data\AppSettings;
 use Hwkdo\IntranetAppCloudshare\Models\IntranetAppCloudshareSettings;
+use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Title;
 use Livewire\Component;
@@ -57,6 +58,8 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
 
     public string $errorMessage = '';
 
+    public bool $needsMicrosoftLogin = false;
+
     public string $hinweisText = '';
 
     public function mount(CloudshareServiceInterface $cloudshare): void
@@ -79,11 +82,15 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
             $this->shares = $cloudshare->listShares($user);
             $this->quota = $cloudshare->quota($user);
             $this->errorMessage = '';
+            $this->needsMicrosoftLogin = false;
 
             foreach ($this->shares as $share) {
                 $this->filesByShareId[$share['id']] = $cloudshare->listFiles($user, $share['name']);
             }
+        } catch (MicrosoftDelegatedTokenMissingException $e) {
+            $this->markMicrosoftLoginRequired($e);
         } catch (\Throwable $e) {
+            $this->needsMicrosoftLogin = false;
             $this->errorMessage = 'OneDrive konnte nicht geladen werden: '.$e->getMessage();
             $this->shares = [];
             $this->quota = null;
@@ -124,6 +131,9 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
             $this->resetCreateForm();
             $this->refreshData($cloudshare);
             Flux::toast(variant: 'success', text: 'Freigabe wurde erstellt.');
+        } catch (MicrosoftDelegatedTokenMissingException $e) {
+            $this->showCreateModal = false;
+            $this->markMicrosoftLoginRequired($e);
         } catch (\Throwable $e) {
             $this->addError('newName', $e->getMessage());
         }
@@ -322,6 +332,14 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
         return (bool) ($this->currentShareForMail()['password'] ?? false);
     }
 
+    protected function markMicrosoftLoginRequired(MicrosoftDelegatedTokenMissingException $e): void
+    {
+        $this->needsMicrosoftLogin = true;
+        $this->errorMessage = $e->getMessage();
+        $this->shares = [];
+        $this->quota = null;
+    }
+
     protected function resetCreateForm(): void
     {
         $this->newName = '';
@@ -338,10 +356,21 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
         <div class="space-y-6">
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <flux:heading size="lg">Freigaben</flux:heading>
-                <flux:button variant="primary" icon="plus" wire:click="openCreateModal">Neu</flux:button>
+                <flux:button variant="primary" icon="plus" wire:click="openCreateModal" :disabled="$needsMicrosoftLogin">Neu</flux:button>
             </div>
 
-            @if ($errorMessage)
+            @if ($needsMicrosoftLogin)
+                <flux:callout variant="warning" icon="exclamation-triangle">
+                    <flux:callout.heading>Microsoft-Anmeldung erforderlich</flux:callout.heading>
+                    <flux:callout.text>
+                        Cloudshare nutzt Ihr Microsoft-Konto für OneDrive-Freigaben.
+                        {{ $errorMessage }}
+                    </flux:callout.text>
+                </flux:callout>
+                <flux:button :href="route('auth.microsoft.redirect')" variant="primary">
+                    Mit Microsoft anmelden
+                </flux:button>
+            @elseif ($errorMessage)
                 <flux:callout variant="danger" icon="exclamation-triangle">
                     <flux:callout.heading>Fehler</flux:callout.heading>
                     <flux:callout.text>{{ $errorMessage }}</flux:callout.text>

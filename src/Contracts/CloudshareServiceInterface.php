@@ -24,8 +24,32 @@ interface CloudshareServiceInterface
 
     /**
      * @param  array{name: string, password?: ?string, expires_at: string, guest_upload: bool}  $data
+     * @return array{
+     *     name: string,
+     *     id: string,
+     *     url: string,
+     *     created_at: string,
+     *     password: bool,
+     *     has_stored_password: bool,
+     *     expiration: ?string,
+     *     writeable: bool
+     * }
      */
-    public function createShare(Authenticatable $user, array $data): bool;
+    public function createShare(Authenticatable $user, array $data): array;
+
+    /**
+     * @return array{
+     *     name: string,
+     *     id: string,
+     *     url: string,
+     *     created_at: string,
+     *     password: bool,
+     *     has_stored_password: bool,
+     *     expiration: ?string,
+     *     writeable: bool
+     * }|null
+     */
+    public function findShare(Authenticatable $user, string $id): ?array;
 
     /**
      * @return list<array{file: string, href: string, modified: string, size: int|string, id: string}>
@@ -57,4 +81,10 @@ interface CloudshareServiceInterface
         string $subject,
         bool $sendPasswordViaBitwarden = false,
     ): array;
+
+    /**
+     * @param  array{name: string, id?: string, url?: string, password?: bool, has_stored_password?: bool, expiration?: ?string, writeable?: bool}  $share
+     * @return array{bitwarden_sent: bool, bitwarden_error: ?string}
+     */
+    public function sendPasswordViaBitwarden(Authenticatable $user, array $share, string $email): array;
 }

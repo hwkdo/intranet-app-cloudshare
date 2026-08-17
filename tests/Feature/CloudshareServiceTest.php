@@ -11,7 +11,8 @@ use Hwkdo\IntranetAppCloudshare\Mail\CloudshareSharedMail;
 use Hwkdo\IntranetAppCloudshare\Models\CloudshareShare;
 use Hwkdo\IntranetAppCloudshare\Models\IntranetAppCloudshareSettings;
 use Hwkdo\IntranetAppCloudshare\Services\CloudshareService;
-use Hwkdo\MsGraphLaravel\Interfaces\MsGraphOneDriveServiceInterface;
+use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
+use Hwkdo\MsGraphLaravel\Interfaces\MsGraphDelegatedOneDriveFactoryInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
@@ -31,7 +32,7 @@ beforeEach(function (): void {
             $table->unsignedBigInteger('user_id')->index();
             $table->string('onedrive_item_id');
             $table->string('folder_name');
-            $table->text('password');
+            $table->text('password')->nullable();
             $table->timestamps();
             $table->unique(['user_id', 'onedrive_item_id']);
         });
@@ -70,7 +71,7 @@ it('listet freigaben über den oneDrive service', function (): void {
     $perm->shouldReceive('getHasPassword')->andReturn(true);
     $perm->shouldReceive('getRoles')->andReturn(['write']);
 
-    $oneDrive = mock(MsGraphOneDriveServiceInterface::class);
+    $oneDrive = mockCloudshareOneDrive();
     $oneDrive->shouldReceive('makeFolder')->once()->with(Mockery::type('string'), 'Cloudshare')->andReturn($folder);
     $oneDrive->shouldReceive('getUserDriveContent')->once()->with(Mockery::type('string'), 'Cloudshare')->andReturn([$folder]);
     $oneDrive->shouldReceive('getDriveItemPermissions')->once()->with(Mockery::type('string'), 'folder-1', 'anonymous')->andReturn(collect([$perm]));
@@ -85,40 +86,7 @@ it('listet freigaben über den oneDrive service', function (): void {
         ->and($shares[0]['writeable'])->toBeTrue();
 });
 
-it('holt den freigabelink per createLink wenn list-permissions keine webUrl liefert', function (): void {
-    $user = cloudshareUser();
-    actingAs($user);
-
-    $folder = Mockery::mock();
-    $folder->shouldReceive('getFolder')->andReturn((object) []);
-    $folder->shouldReceive('getShared')->andReturn((object) []);
-    $folder->shouldReceive('getId')->andReturn('folder-1');
-    $folder->shouldReceive('getName')->andReturn('Projekt');
-    $folder->shouldReceive('getFileSystemInfo')->andReturn(null);
-
-    $link = Mockery::mock();
-    $link->shouldReceive('getWebUrl')->andReturn(null);
-
-    $perm = Mockery::mock();
-    $perm->shouldReceive('getLink')->andReturn($link);
-    $perm->shouldReceive('getExpirationDateTime')->andReturn(null);
-    $perm->shouldReceive('getHasPassword')->andReturn(false);
-    $perm->shouldReceive('getRoles')->andReturn(['read']);
-
-    $oneDrive = mock(MsGraphOneDriveServiceInterface::class);
-    $oneDrive->shouldReceive('makeFolder')->once()->with(Mockery::type('string'), 'Cloudshare')->andReturn($folder);
-    $oneDrive->shouldReceive('getUserDriveContent')->once()->with(Mockery::type('string'), 'Cloudshare')->andReturn([$folder]);
-    $oneDrive->shouldReceive('getDriveItemPermissions')->once()->with(Mockery::type('string'), 'folder-1', 'anonymous')->andReturn(collect([$perm]));
-    $oneDrive->shouldReceive('shareReadOnly')->once()->with(Mockery::type('string'), 'folder-1')->andReturn('https://example.com/recovered-share');
-    $oneDrive->shouldNotReceive('shareReadWrite');
-
-    $shares = app(CloudshareService::class)->listShares($user);
-
-    expect($shares)->toHaveCount(1)
-        ->and($shares[0]['url'])->toBe('https://example.com/recovered-share');
-});
-
-it('holt den schreibbaren freigabelink per createLink wenn webUrl fehlt', function (): void {
+it('erzeugt beim listen keinen neuen graph-link wenn keine url bekannt ist', function (): void {
     $user = cloudshareUser();
     actingAs($user);
 
@@ -138,17 +106,17 @@ it('holt den schreibbaren freigabelink per createLink wenn webUrl fehlt', functi
     $perm->shouldReceive('getHasPassword')->andReturn(true);
     $perm->shouldReceive('getRoles')->andReturn(['write']);
 
-    $oneDrive = mock(MsGraphOneDriveServiceInterface::class);
+    $oneDrive = mockCloudshareOneDrive();
     $oneDrive->shouldReceive('makeFolder')->once()->andReturn($folder);
     $oneDrive->shouldReceive('getUserDriveContent')->once()->andReturn([$folder]);
     $oneDrive->shouldReceive('getDriveItemPermissions')->once()->andReturn(collect([$perm]));
-    $oneDrive->shouldReceive('shareReadWrite')->once()->with(Mockery::type('string'), 'folder-2')->andReturn('https://example.com/rw-share');
+    $oneDrive->shouldNotReceive('shareReadWrite');
     $oneDrive->shouldNotReceive('shareReadOnly');
 
     $shares = app(CloudshareService::class)->listShares($user);
 
     expect($shares)->toHaveCount(1)
-        ->and($shares[0]['url'])->toBe('https://example.com/rw-share')
+        ->and($shares[0]['url'])->toBe('')
         ->and($shares[0]['writeable'])->toBeTrue();
 });
 
@@ -159,7 +127,7 @@ it('erstellt eine freigabe und speichert passwort verschluesselt', function (): 
     $createdFolder = Mockery::mock();
     $createdFolder->shouldReceive('getId')->andReturn('new-folder-id');
 
-    $oneDrive = mock(MsGraphOneDriveServiceInterface::class);
+    $oneDrive = mockCloudshareOneDrive();
     $oneDrive->shouldReceive('makeFolder')
         ->once()
         ->with(Mockery::type('string'), 'Cloudshare/Demo')
@@ -168,30 +136,112 @@ it('erstellt eine freigabe und speichert passwort verschluesselt', function (): 
         ->once()
         ->with(Mockery::type('string'), 'new-folder-id', 'secret123', Mockery::type('string'))
         ->andReturn('https://example.com/rw');
+    $oneDrive->shouldReceive('getDriveItemPermissions')->andReturn([]);
 
-    $ok = app(CloudshareService::class)->createShare($user, [
+    $share = app(CloudshareService::class)->createShare($user, [
         'name' => 'Demo',
         'password' => 'secret123',
         'expires_at' => now()->addDay()->toDateTimeString(),
         'guest_upload' => true,
     ]);
 
-    expect($ok)->toBeTrue();
+    expect($share['id'])->toBe('new-folder-id')
+        ->and($share['name'])->toBe('Demo')
+        ->and($share['url'])->toBe('https://example.com/rw')
+        ->and($share['has_stored_password'])->toBeTrue()
+        ->and($share['writeable'])->toBeTrue();
 
     $row = DB::table('intranet_app_cloudshare_shares')->where('onedrive_item_id', 'new-folder-id')->first();
     expect($row)->not->toBeNull()
         ->and($row->password)->not->toBe('secret123');
+
+    if (property_exists($row, 'share_url')) {
+        expect($row->share_url)->toBeNull();
+    }
 
     $model = CloudshareShare::query()->where('onedrive_item_id', 'new-folder-id')->first();
     expect($model)->not->toBeNull()
         ->and($model->password)->toBe('secret123');
 });
 
+it('erstellt eine freigabe ohne passwort', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    $createdFolder = Mockery::mock();
+    $createdFolder->shouldReceive('getId')->andReturn('no-password-folder');
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('makeFolder')
+        ->once()
+        ->with(Mockery::type('string'), 'Cloudshare/OhnePasswort')
+        ->andReturn($createdFolder);
+    $oneDrive->shouldReceive('shareReadOnly')
+        ->once()
+        ->with(Mockery::type('string'), 'no-password-folder', null, Mockery::type('string'))
+        ->andReturn('https://example.com/ro');
+    $oneDrive->shouldReceive('getDriveItemPermissions')->andReturn([]);
+
+    $share = app(CloudshareService::class)->createShare($user, [
+        'name' => 'OhnePasswort',
+        'password' => null,
+        'expires_at' => now()->addDay()->toDateTimeString(),
+        'guest_upload' => false,
+    ]);
+
+    expect($share['id'])->toBe('no-password-folder')
+        ->and($share['url'])->toBe('https://example.com/ro')
+        ->and($share['password'])->toBeFalse()
+        ->and($share['has_stored_password'])->toBeFalse();
+
+    $model = CloudshareShare::query()->where('onedrive_item_id', 'no-password-folder')->first();
+    expect($model)->not->toBeNull()
+        ->and($model->password)->toBeNull();
+});
+
+it('gibt beim anlegen die graph-url zurück ohne sie zu speichern', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    $createdFolder = Mockery::mock();
+    $createdFolder->shouldReceive('getId')->andReturn('new-folder-id');
+    $createdFolder->shouldReceive('getName')->andReturn('Demo');
+    $createdFolder->shouldReceive('getFileSystemInfo')->andReturn(null);
+
+    $link = Mockery::mock();
+    $link->shouldReceive('getWebUrl')->andReturn(null);
+
+    $perm = Mockery::mock();
+    $perm->shouldReceive('getLink')->andReturn($link);
+    $perm->shouldReceive('getExpirationDateTime')->andReturn(now()->addDay());
+    $perm->shouldReceive('getHasPassword')->andReturn(true);
+    $perm->shouldReceive('getRoles')->andReturn(['write']);
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('makeFolder')
+        ->once()
+        ->andReturn($createdFolder);
+    $oneDrive->shouldReceive('shareReadWrite')
+        ->once()
+        ->andReturn('https://example.com/rw');
+    $oneDrive->shouldReceive('getDriveItemPermissions')->andReturn(collect([$perm]));
+    $oneDrive->shouldNotReceive('shareReadOnly');
+
+    $share = app(CloudshareService::class)->createShare($user, [
+        'name' => 'Demo',
+        'password' => 'secret123',
+        'expires_at' => now()->addDay()->toDateTimeString(),
+        'guest_upload' => true,
+    ]);
+
+    expect($share['url'])->toBe('https://example.com/rw');
+});
+
 it('validiert passwortlänge bei createShare', function (): void {
     $user = cloudshareUser();
     actingAs($user);
 
-    mock(MsGraphOneDriveServiceInterface::class)->shouldNotReceive('makeFolder');
+    mockCloudshareOneDrive()->shouldNotReceive('makeFolder');
 
     app(CloudshareService::class)->createShare($user, [
         'name' => 'Demo',
@@ -215,7 +265,7 @@ it('löscht ein item und den gespeicherten share-eintrag', function (): void {
     $drive = Mockery::mock();
     $drive->shouldReceive('getId')->andReturn('drive-1');
 
-    $oneDrive = mock(MsGraphOneDriveServiceInterface::class);
+    $oneDrive = mockCloudshareOneDrive();
     $oneDrive->shouldReceive('getUserDrive')->once()->andReturn($drive);
     $oneDrive->shouldReceive('deleteItemById')->once()->with('drive-1', 'item-9')->andReturn(true);
 
@@ -235,7 +285,7 @@ it('liefert quota relativ', function (): void {
     $drive = Mockery::mock();
     $drive->shouldReceive('getQuota')->andReturn($quota);
 
-    mock(MsGraphOneDriveServiceInterface::class)
+    mockCloudshareOneDrive()
         ->shouldReceive('getUserDrive')
         ->once()
         ->andReturn($drive);
@@ -251,7 +301,7 @@ it('sendet share-mail an empfänger mit cc an absender', function (): void {
     $user = cloudshareUser();
     actingAs($user);
 
-    mock(MsGraphOneDriveServiceInterface::class);
+    mockCloudshareOneDrive();
 
     $result = app(CloudshareServiceInterface::class)->sendShareMail(
         $user,
@@ -290,7 +340,7 @@ it('sendet bitwarden-send-mail wenn option aktiv und passwort gespeichert', func
         'password' => 'secret123',
     ]);
 
-    mock(MsGraphOneDriveServiceInterface::class);
+    mockCloudshareOneDrive();
     mock(HwkAdminService::class)
         ->shouldReceive('createBitwardenSend')
         ->once()
@@ -355,7 +405,7 @@ it('uebergibt bitwarden-send defaults aus app settings', function (): void {
         'password' => 'secret123',
     ]);
 
-    mock(MsGraphOneDriveServiceInterface::class);
+    mockCloudshareOneDrive();
     mock(HwkAdminService::class)
         ->shouldReceive('createBitwardenSend')
         ->once()
@@ -383,7 +433,7 @@ it('meldet fehler wenn bitwarden send ohne gespeichertes passwort', function ():
     $user = cloudshareUser();
     actingAs($user);
 
-    mock(MsGraphOneDriveServiceInterface::class);
+    mockCloudshareOneDrive();
 
     $result = app(CloudshareServiceInterface::class)->sendShareMail(
         $user,
@@ -405,3 +455,47 @@ it('meldet fehler wenn bitwarden send ohne gespeichertes passwort', function ():
     Mail::assertSent(CloudshareSharedMail::class, 1);
     Mail::assertNotSent(CloudsharePasswordSendMail::class);
 });
+
+it('sendet nur die bitwarden-mail ohne freigabe-mail', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    CloudshareShare::query()->create([
+        'user_id' => $user->id,
+        'onedrive_item_id' => 'share-outlook',
+        'folder_name' => 'Demo',
+        'password' => 'secret123',
+    ]);
+
+    mockCloudshareOneDrive();
+    mock(HwkAdminService::class)
+        ->shouldReceive('createBitwardenSend')
+        ->once()
+        ->andReturn('https://vault.example.com/send/outlook');
+
+    $result = app(CloudshareServiceInterface::class)->sendPasswordViaBitwarden(
+        $user,
+        [
+            'name' => 'Demo',
+            'id' => 'share-outlook',
+        ],
+        'gast@example.com',
+    );
+
+    expect($result['bitwarden_sent'])->toBeTrue()
+        ->and($result['bitwarden_error'])->toBeNull();
+
+    Mail::assertNotSent(CloudshareSharedMail::class);
+    Mail::assertSent(CloudsharePasswordSendMail::class, 1);
+});
+
+it('reicht fehlende microsoft tokens als exception durch', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    mock(MsGraphDelegatedOneDriveFactoryInterface::class)
+        ->shouldReceive('forUser')
+        ->andThrow(MicrosoftDelegatedTokenMissingException::missingRefreshToken());
+
+    app(CloudshareService::class)->listShares($user);
+})->throws(MicrosoftDelegatedTokenMissingException::class);

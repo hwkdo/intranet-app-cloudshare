@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Models\User;
 use Hwkdo\IntranetAppCloudshare\Contracts\CloudshareServiceInterface;
+use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
 use Livewire\Livewire;
 use Spatie\Permission\Models\Permission;
 
@@ -103,4 +104,29 @@ it('verbietet admin ohne manage permission', function (): void {
     actingAs($user);
 
     get(route('apps.cloudshare.admin.index'))->assertForbidden();
+});
+
+it('zeigt den hinweis zur microsoft-anmeldung wenn der delegated token fehlt', function (): void {
+    $user = User::factory()->create([
+        'username' => 'no.token',
+        'vorname' => 'No',
+        'nachname' => 'Token',
+        'email' => 'no.token@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')
+            ->andThrow(MicrosoftDelegatedTokenMissingException::missingRefreshToken());
+        $mock->shouldReceive('quota')->never();
+        $mock->shouldReceive('listFiles')->never();
+    });
+
+    actingAs($user);
+
+    Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->assertSuccessful()
+        ->assertSee('Microsoft-Anmeldung erforderlich')
+        ->assertSee('Mit Microsoft anmelden')
+        ->assertSet('needsMicrosoftLogin', true);
 });

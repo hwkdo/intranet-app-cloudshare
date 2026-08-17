@@ -16,6 +16,8 @@ class CloudshareSharedMail extends Mailable
 {
     use Queueable, SerializesModels;
 
+    public const DEFAULT_SUBJECT = 'Ein Cloud Ordner wurde für Sie freigegeben';
+
     /**
      * @param  array{name?: string, url: string, password?: bool, expiration?: ?string, writeable?: bool}  $share
      */

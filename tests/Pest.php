@@ -1,5 +1,48 @@
 <?php
 
-use Hwkdo\IntranetAppCloudshare\Tests\TestCase;
+declare(strict_types=1);
+use Hwkdo\MsGraphLaravel\Interfaces\MsGraphDelegatedOneDriveFactoryInterface;
+use Hwkdo\MsGraphLaravel\Interfaces\MsGraphOneDriveServiceInterface;
 
-uses(TestCase::class)->in(__DIR__);
+use function Pest\Laravel\mock;
+
+if (! function_exists('cloudshareSampleShare')) {
+    /**
+     * @param  array<string, mixed>  $overrides
+     * @return array{
+     *     name: string,
+     *     id: string,
+     *     url: string,
+     *     created_at: string,
+     *     password: bool,
+     *     has_stored_password: bool,
+     *     expiration: ?string,
+     *     writeable: bool
+     * }
+     */
+    function cloudshareSampleShare(array $overrides = []): array
+    {
+        return array_merge([
+            'name' => 'Projekt-X',
+            'id' => 'item-123',
+            'url' => 'https://1drv.ms/example',
+            'created_at' => '17.08.2026 10:00',
+            'password' => true,
+            'has_stored_password' => true,
+            'expiration' => '31.12.2026 23:59 Uhr',
+            'writeable' => false,
+        ], $overrides);
+    }
+}
+
+if (! function_exists('mockCloudshareOneDrive')) {
+    function mockCloudshareOneDrive(): MsGraphOneDriveServiceInterface
+    {
+        $oneDrive = mock(MsGraphOneDriveServiceInterface::class);
+        mock(MsGraphDelegatedOneDriveFactoryInterface::class)
+            ->shouldReceive('forUser')
+            ->andReturn($oneDrive);
+
+        return $oneDrive;
+    }
+}

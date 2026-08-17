@@ -15,7 +15,7 @@ return new class extends Migration
             $table->unsignedBigInteger('user_id')->index();
             $table->string('onedrive_item_id');
             $table->string('folder_name');
-            $table->text('password');
+            $table->text('password')->nullable();
             $table->timestamps();
 
             $table->unique(['user_id', 'onedrive_item_id']);
