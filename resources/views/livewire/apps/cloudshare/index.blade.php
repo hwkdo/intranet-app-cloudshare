@@ -396,6 +396,26 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
                                 <flux:text class="text-sm">erstellt {{ $share['created_at'] }}</flux:text>
                             </div>
                             <div class="flex flex-wrap gap-2">
+                                @if (is_string($share['url']) && $share['url'] !== '')
+                                    <flux:button
+                                        size="sm"
+                                        variant="ghost"
+                                        icon="clipboard"
+                                        tooltip="Link kopieren"
+                                        aria-label="Link kopieren"
+                                        x-on:click="navigator.clipboard.writeText({{ \Illuminate\Support\Js::from($share['url']) }}).then(() => $flux.toast({ text: 'Link kopiert', variant: 'success' })).catch(() => $flux.toast({ text: 'Kopieren fehlgeschlagen', variant: 'danger' }))"
+                                    />
+                                    <flux:button
+                                        size="sm"
+                                        variant="ghost"
+                                        icon="arrow-top-right-on-square"
+                                        :href="$share['url']"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        tooltip="Link öffnen"
+                                        aria-label="Link öffnen"
+                                    />
+                                @endif
                                 @if ($this->quotaRelative() < 90)
                                     <flux:button size="sm" variant="primary" icon="arrow-up-tray" wire:click="openUploadModal('{{ $share['id'] }}', {{ \Illuminate\Support\Js::from($share['name']) }})">
                                         Upload
@@ -417,12 +437,6 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
                         </div>
 
                         <div class="space-y-2">
-                            <flux:text>
-                                Link:
-                                <a href="{{ $share['url'] }}" target="_blank" rel="noopener noreferrer" class="text-blue-600 underline dark:text-blue-400">
-                                    {{ $share['url'] }}
-                                </a>
-                            </flux:text>
                             <div class="flex flex-wrap gap-2">
                                 @if ($share['password'])
                                     <flux:badge color="red">Passwortgeschützt</flux:badge>

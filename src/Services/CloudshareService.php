@@ -316,12 +316,33 @@ class CloudshareService implements CloudshareServiceInterface
         return [
             'name' => $share->getName(),
             'id' => $itemId,
-            'url' => $perm->getLink()->getWebUrl(),
+            'url' => $this->resolveShareUrl($perm, $upn, $itemId, $roles),
             'created_at' => $created ? Carbon::parse($created)->format('d.m.Y H:i') : '',
             'password' => $hasPassword,
             'has_stored_password' => $hasPassword && in_array($itemId, $storedIds, true),
             'expiration' => $expiration,
             'writeable' => in_array('write', $roles, true),
         ];
+    }
+
+    /**
+     * Graph list-permissions liefert webUrl oft nicht (Secret, nur für Caller mit create-Recht).
+     * createLink ist idempotent und gibt den bestehenden anonymen Link inklusive URL zurück.
+     *
+     * @param  list<string>  $roles
+     */
+    protected function resolveShareUrl(mixed $perm, string $upn, string $itemId, array $roles): string
+    {
+        $url = $perm->getLink()?->getWebUrl();
+
+        if (is_string($url) && $url !== '') {
+            return $url;
+        }
+
+        $resolved = in_array('write', $roles, true)
+            ? $this->oneDrive->shareReadWrite($upn, $itemId)
+            : $this->oneDrive->shareReadOnly($upn, $itemId);
+
+        return is_string($resolved) ? $resolved : '';
     }
 }

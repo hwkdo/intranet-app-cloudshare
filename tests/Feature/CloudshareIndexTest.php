@@ -63,6 +63,8 @@ it('zeigt den index mit permission und gemocktem service', function (): void {
         ->assertSuccessful()
         ->assertSee('Demo')
         ->assertSee('https://example.com/demo')
+        ->assertSee('Link kopieren')
+        ->assertSee('Link öffnen')
         ->assertSee('Freigaben');
 });
 
