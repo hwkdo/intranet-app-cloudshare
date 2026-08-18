@@ -5,7 +5,7 @@ declare(strict_types=1);
 use App\Models\User;
 use Hwkdo\IntranetAppCloudshare\Mail\CloudsharePasswordSendMail;
 
-it('benennt die freigabe klar als cloud share und nennt den ordner', function (): void {
+it('benennt produkt und cloud-ordner einheitlich', function (): void {
     $sender = User::factory()->create([
         'username' => 'bw.mail.sender',
         'vorname' => 'Erika',
@@ -19,16 +19,27 @@ it('benennt die freigabe klar als cloud share und nennt den ordner', function ()
         $sender,
     );
 
-    $mailable->assertHasSubject('Passwort für den Cloud Share Ordner Projekt-X');
-    $mailable->assertSeeInHtml('Cloud Share Ordner Projekt-X');
+    $mailable->assertHasSubject('Passwort für den Cloud-Ordner Projekt-X');
+    $mailable->assertSeeInHtml('über Cloud Share');
+    $mailable->assertSeeInHtml('Cloud-Ordner Projekt-X');
     $mailable->assertSeeInHtml('https://vault.example.com/send/abc');
     $mailable->assertDontSeeInHtml('Cloudshare');
+    $mailable->assertDontSeeInHtml('Cloud-Share');
+    $mailable->assertDontSeeInHtml('CloudShare');
+    $mailable->assertDontSeeInHtml('Cloud Share Ordner');
     $mailable->assertDontSeeInHtml('Cloud Shift');
     $mailable->assertDontSeeInHtml('Zugangspasswort zur Cloudshare-Freigabe');
 
-    $mailable->assertSeeInText('Cloud Share Ordner Projekt-X');
+    $mailable->assertSeeInText('über Cloud Share das Passwort für den Cloud-Ordner Projekt-X');
     $mailable->assertDontSeeInText('Cloudshare');
     $mailable->assertDontSeeInText('Cloud Shift');
+});
+
+it('erzeugt den passwort-betreff aus dem namen des cloud-ordners', function (): void {
+    expect(CloudsharePasswordSendMail::subjectForShare('Projekt-X'))
+        ->toBe('Passwort für den Cloud-Ordner Projekt-X')
+        ->and(CloudsharePasswordSendMail::subjectForShare('   '))
+        ->toBe('Passwort für einen Cloud-Ordner');
 });
 
 it('erklaert die einmalige nutzung und den fehlerfall', function (): void {

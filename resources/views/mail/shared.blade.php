@@ -1,5 +1,5 @@
 <x-mail::message>
-<img src="https://www.hwk-do.de/wp-content/uploads/2024/06/cloudshare-e1718175949841.png" alt="Cloudshare">
+<img src="https://www.hwk-do.de/wp-content/uploads/2024/06/cloudshare-e1718175949841.png" alt="Cloud Share">
 
 {{ $user->name }} hat den Cloud-Ordner {{ $shareName }} für Sie freigegeben.
 

@@ -3,7 +3,7 @@
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
-new #[Title('Cloudshare - App-Info')] class extends Component
+new #[Title('Cloud Share - App-Info')] class extends Component
 {
 };
 ?>

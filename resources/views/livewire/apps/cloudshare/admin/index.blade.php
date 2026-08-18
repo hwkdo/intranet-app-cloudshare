@@ -3,7 +3,7 @@
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
-new #[Title('Cloudshare - Admin')] class extends Component
+new #[Title('Cloud Share - Admin')] class extends Component
 {
     public string $activeTab = 'einstellungen';
 
@@ -19,7 +19,7 @@ new #[Title('Cloudshare - Admin')] class extends Component
 ?>
 
 <div>
-    <x-intranet-app-cloudshare::cloudshare-layout heading="Cloudshare" subheading="Administration">
+    <x-intranet-app-cloudshare::cloudshare-layout heading="Cloud Share" subheading="Administration">
         <flux:tab.group>
             <flux:tabs wire:model.live="activeTab">
                 <flux:tab name="einstellungen" icon="cog-6-tooth">Einstellungen</flux:tab>

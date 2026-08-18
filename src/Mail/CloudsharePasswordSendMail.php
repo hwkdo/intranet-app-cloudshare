@@ -27,10 +27,10 @@ class CloudsharePasswordSendMail extends Mailable
         $shareName = trim($shareName);
 
         if ($shareName === '') {
-            return 'Passwort für einen Cloud Share Ordner';
+            return 'Passwort für einen Cloud-Ordner';
         }
 
-        return 'Passwort für den Cloud Share Ordner '.$shareName;
+        return 'Passwort für den Cloud-Ordner '.$shareName;
     }
 
     public function envelope(): Envelope

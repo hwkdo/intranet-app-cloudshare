@@ -19,7 +19,7 @@ it('liefert die gerenderte share-mail als html', function (): void {
     Passport::actingAs($user);
 
     $share = cloudshareSampleShare();
-    $html = '<html><body>Cloudshare Freigabe</body></html>';
+    $html = '<html><body>Cloud Share Freigabe</body></html>';
 
     $mock = mock(CloudshareServiceInterface::class);
     $mock->shouldReceive('findShare')

@@ -11,7 +11,7 @@ class IntranetAppCloudshare implements IntranetAppInterface
 {
     public static function app_name(): string
     {
-        return 'Cloudshare';
+        return 'Cloud Share';
     }
 
     public static function app_icon(): string

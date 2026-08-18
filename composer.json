@@ -1,6 +1,6 @@
 {
     "name": "hwkdo/intranet-app-cloudshare",
-    "description": "Temporäre OneDrive-Freigaben für Externe (Cloudshare)",
+    "description": "Temporäre OneDrive-Freigaben für Externe (Cloud Share)",
     "keywords": [
         "hwkdo",
         "laravel",

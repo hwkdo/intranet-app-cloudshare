@@ -46,8 +46,13 @@ it('stellt freigabeangaben in html und text getrennt dar', function (): void {
     );
 
     $mailable->assertSeeInHtml('Max Mustermann hat den Cloud-Ordner');
+    $mailable->assertSeeInHtml('alt="Cloud Share"');
     $mailable->assertSeeInHtml('Projekt-X');
     $mailable->assertSeeInHtml('https://1drv.ms/example');
+    $mailable->assertDontSeeInHtml('Cloudshare');
+    $mailable->assertDontSeeInHtml('Cloud-Share');
+    $mailable->assertDontSeeInHtml('CloudShare');
+    $mailable->assertDontSeeInHtml('Cloud Ordner');
     $mailable->assertSeeInOrderInHtml([
         'Freigabe:',
         'Projekt-X',

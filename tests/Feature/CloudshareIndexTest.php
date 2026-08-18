@@ -6,6 +6,7 @@ use App\Models\User;
 use Hwkdo\IntranetAppCloudshare\Contracts\CloudshareServiceInterface;
 use Hwkdo\IntranetAppCloudshare\Data\AppSettings;
 use Hwkdo\IntranetAppCloudshare\Data\UserSettings;
+use Hwkdo\IntranetAppCloudshare\IntranetAppCloudshare;
 use Hwkdo\IntranetAppCloudshare\Mail\CloudshareSharedMail;
 use Hwkdo\IntranetAppCloudshare\Models\IntranetAppCloudshareSettings;
 use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
@@ -35,6 +36,10 @@ it('verbietet den index ohne permission', function (): void {
     get(route('apps.cloudshare.index'))->assertForbidden();
 });
 
+it('verwendet cloud share als produktnamen', function (): void {
+    expect(IntranetAppCloudshare::app_name())->toBe('Cloud Share');
+});
+
 it('zeigt beim ersten seitenaufruf einen hinweis auf den microsoft-abruf', function (): void {
     $user = User::factory()->create([
         'username' => 'graph.loading',
@@ -51,6 +56,7 @@ it('zeigt beim ersten seitenaufruf einen hinweis auf den microsoft-abruf', funct
     get(route('apps.cloudshare.index'))
         ->assertSuccessful()
         ->assertSee('Daten werden von Microsoft geladen')
+        ->assertSee('Cloud Share ruft Ihre Freigaben')
         ->assertSee('Freigaben und Dateien aus OneDrive')
         ->assertDontSee('Sie haben noch keine Freigaben');
 });
@@ -90,6 +96,7 @@ it('zeigt den index mit permission und gemocktem service', function (): void {
     Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
         ->assertSuccessful()
         ->assertSee('Demo')
+        ->assertSee('Cloud Share')
         ->assertSee('https://example.com/demo')
         ->assertSee('Link kopieren')
         ->assertSee('Link öffnen')
@@ -540,7 +547,7 @@ it('setzt den mail-betreff mit dem namen der freigabe', function (): void {
     Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
         ->call('openShareModal', 'share-1')
         ->assertSet('showShareModal', true)
-        ->assertSet('shareMailSubject', 'Der Cloud Ordner Projekt-X wurde für Sie freigegeben');
+        ->assertSet('shareMailSubject', 'Der Cloud-Ordner Projekt-X wurde für Sie freigegeben');
 });
 
 it('schliesst das teilen-modal nach erfolgreichem mailversand', function (): void {
@@ -614,9 +621,12 @@ it('laesst das teilen-modal bei validierungsfehlern geoeffnet', function (): voi
 
 it('erzeugt den mail-betreff aus dem namen der freigabe', function (): void {
     expect(CloudshareSharedMail::subjectForShare('Projekt-X'))
-        ->toBe('Der Cloud Ordner Projekt-X wurde für Sie freigegeben')
+        ->toBe('Der Cloud-Ordner Projekt-X wurde für Sie freigegeben')
         ->and(CloudshareSharedMail::subjectForShare('   '))
         ->toBe(CloudshareSharedMail::DEFAULT_SUBJECT);
+
+    expect(CloudshareSharedMail::DEFAULT_SUBJECT)
+        ->toBe('Der Cloud-Ordner wurde für Sie freigegeben');
 });
 
 it('fuellt fehlendes polling-intervall in alten appsettings mit default', function (): void {
@@ -683,6 +693,7 @@ it('bietet im upload-modal eine drag-and-drop-flaeche', function (): void {
     Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
         ->call('openUploadModal', 'share-1', 'Projekt-X')
         ->assertSet('showUploadModal', true)
+        ->assertSee('Datei hochladen')
         ->assertSee('Datei hierher ziehen oder klicken')
         ->assertSee('Eine Datei, maximal 250 MB');
 });

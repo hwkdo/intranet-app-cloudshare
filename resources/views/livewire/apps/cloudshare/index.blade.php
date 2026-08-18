@@ -14,7 +14,7 @@ use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
 
-new #[Title('Cloudshare - Freigaben')] #[Defer] class extends Component
+new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
 {
     use WithFileUploads;
 
@@ -576,12 +576,12 @@ new #[Title('Cloudshare - Freigaben')] #[Defer] class extends Component
 
 @placeholder
 <div>
-    <x-intranet-app-cloudshare::cloudshare-layout heading="Cloudshare" subheading="Temporäre OneDrive-Freigaben für Externe">
+    <x-intranet-app-cloudshare::cloudshare-layout heading="Cloud Share" subheading="Temporäre OneDrive-Freigaben für Externe">
         <div class="space-y-4">
             <flux:callout icon="cloud">
                 <flux:callout.heading>Daten werden von Microsoft geladen</flux:callout.heading>
                 <flux:callout.text>
-                    Cloudshare ruft Ihre Freigaben und Dateien aus OneDrive ab. Das kann einige Sekunden dauern.
+                    Cloud Share ruft Ihre Freigaben und Dateien aus OneDrive ab. Das kann einige Sekunden dauern.
                 </flux:callout.text>
             </flux:callout>
 
@@ -601,7 +601,7 @@ new #[Title('Cloudshare - Freigaben')] #[Defer] class extends Component
 @endplaceholder
 
 <div>
-    <x-intranet-app-cloudshare::cloudshare-layout heading="Cloudshare" subheading="Temporäre OneDrive-Freigaben für Externe">
+    <x-intranet-app-cloudshare::cloudshare-layout heading="Cloud Share" subheading="Temporäre OneDrive-Freigaben für Externe">
         <div class="space-y-6">
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <flux:heading size="lg">Freigaben</flux:heading>
@@ -629,7 +629,7 @@ new #[Title('Cloudshare - Freigaben')] #[Defer] class extends Component
                 <flux:callout variant="warning" icon="exclamation-triangle">
                     <flux:callout.heading>Microsoft-Anmeldung erforderlich</flux:callout.heading>
                     <flux:callout.text>
-                        Cloudshare nutzt Ihr Microsoft-Konto für OneDrive-Freigaben.
+                        Cloud Share nutzt Ihr Microsoft-Konto für OneDrive-Freigaben.
                         {{ $errorMessage }}
                     </flux:callout.text>
                 </flux:callout>
@@ -732,7 +732,7 @@ new #[Title('Cloudshare - Freigaben')] #[Defer] class extends Component
                                 @endif
                                 @if ($this->quotaRelative() < 90)
                                     <flux:button size="sm" variant="primary" icon="arrow-up-tray" wire:click="openUploadModal('{{ $share['id'] }}', {{ \Illuminate\Support\Js::from($share['name']) }})">
-                                        Upload
+                                        Hochladen
                                     </flux:button>
                                 @endif
                                 <flux:button size="sm" variant="ghost" icon="envelope" wire:click="openShareModal({{ \Illuminate\Support\Js::from($share['id']) }})">
@@ -847,7 +847,7 @@ new #[Title('Cloudshare - Freigaben')] #[Defer] class extends Component
 
         <flux:modal wire:model="showUploadModal" class="md:w-[32rem] space-y-6">
             <div>
-                <flux:heading size="lg">Upload</flux:heading>
+                <flux:heading size="lg">Datei hochladen</flux:heading>
                 <flux:text class="mt-1">Datei in die Freigabe „{{ $uploadFolderName }}“ hochladen.</flux:text>
             </div>
 

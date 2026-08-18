@@ -1,5 +1,5 @@
 <x-mail::message>
-{{ $user->name }} stellt Ihnen das Passwort für den Cloud Share Ordner {{ $shareName }} bereit.
+{{ $user->name }} stellt Ihnen über Cloud Share das Passwort für den Cloud-Ordner {{ $shareName }} bereit.
 
 Das Passwort steht nicht in dieser E-Mail. Öffnen Sie den folgenden Link, um es über Bitwarden Send abzurufen:
 

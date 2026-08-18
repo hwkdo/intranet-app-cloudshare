@@ -16,7 +16,7 @@ class CloudshareSharedMail extends Mailable
 {
     use Queueable, SerializesModels;
 
-    public const DEFAULT_SUBJECT = 'Der Cloud Ordner wurde für Sie freigegeben';
+    public const DEFAULT_SUBJECT = 'Der Cloud-Ordner wurde für Sie freigegeben';
 
     /**
      * @param  array{name?: string, url: string, password?: bool, expiration?: ?string, writeable?: bool}  $share
@@ -35,7 +35,7 @@ class CloudshareSharedMail extends Mailable
             return self::DEFAULT_SUBJECT;
         }
 
-        return 'Der Cloud Ordner '.$shareName.' wurde für Sie freigegeben';
+        return 'Der Cloud-Ordner '.$shareName.' wurde für Sie freigegeben';
     }
 
     public function envelope(): Envelope
