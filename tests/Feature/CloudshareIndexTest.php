@@ -165,6 +165,61 @@ it('stellt passwortschutz, gültigkeit und gast-upload zeilenweise dar', functio
         ->assertDontSee('Passwortgeschützt');
 });
 
+it('stellt freigaben als eingeklappte klappliste dar', function (): void {
+    $user = User::factory()->create([
+        'username' => 'share.accordion',
+        'vorname' => 'Share',
+        'nachname' => 'Accordion',
+        'email' => 'share.accordion@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->andReturn([
+            cloudshareSampleShare([
+                'name' => 'Projekt-X',
+                'id' => 'share-1',
+                'password' => true,
+                'writeable' => true,
+                'created_at' => '17.08.2026 10:00',
+            ]),
+        ]);
+        $mock->shouldReceive('quota')->andReturn(null);
+        $mock->shouldReceive('listFiles')->andReturn([
+            [
+                'file' => 'angebot.pdf',
+                'href' => 'https://example.com/angebot.pdf',
+                'modified' => '17.08.2026 10:00',
+                'size' => 1024,
+                'id' => 'file-1',
+            ],
+        ]);
+    });
+
+    actingAs($user);
+
+    $component = Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->assertSuccessful()
+        ->assertSee('1 Freigabe')
+        ->assertSee('Projekt-X')
+        ->assertSee('erstellt 17.08.2026 10:00')
+        ->assertSee('Passwort')
+        ->assertSee('Gast-Upload')
+        ->assertSee('1 Datei')
+        ->assertSeeHtml('data-flux-accordion')
+        ->assertSeeHtml('glass-card')
+        ->assertSeeHtml('aria-expanded="false"');
+
+    $badges = collect($component->instance()->shareHeaderBadges([
+        'id' => 'share-1',
+        'password' => true,
+        'writeable' => true,
+        'expiration' => '31.12.2026 23:59 Uhr',
+    ]))->pluck('label')->all();
+
+    expect($badges)->toBe(['Passwort', 'Gast-Upload', '1 Datei']);
+});
+
 it('filtert freigaben nach namen und enthaltenen dateien', function (): void {
     $user = User::factory()->create([
         'username' => 'search.user',

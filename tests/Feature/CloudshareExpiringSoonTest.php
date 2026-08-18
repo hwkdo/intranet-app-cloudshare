@@ -109,9 +109,7 @@ it('hebt bald ablaufende und abgelaufene freigaben in der liste hervor', functio
         ->assertSee('Spaeter-Ablauf')
         ->assertSee('Läuft bald ab')
         ->assertSee('Abgelaufen')
-        ->assertSee('Gültigkeit verlängern')
-        ->assertSeeHtml('dark:bg-amber-950!')
-        ->assertSeeHtml('dark:bg-red-950!');
+        ->assertSee('Gültigkeit verlängern');
 
     $instance = $component->instance();
 

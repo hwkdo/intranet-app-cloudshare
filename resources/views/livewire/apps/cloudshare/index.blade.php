@@ -678,6 +678,51 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
         return null;
     }
 
+    /**
+     * @param  array{id: string, password?: bool, writeable?: bool, file_count?: int}  $share
+     * @return list<array{label: string, color: string}>
+     */
+    public function shareHeaderBadges(array $share): array
+    {
+        $badges = [];
+
+        if ($this->shareHasUpdatesSinceOpen($share['id'])) {
+            $badges[] = ['label' => 'Aktualisiert', 'color' => 'lime'];
+        }
+
+        if ($this->shareIsExpired($share)) {
+            $badges[] = ['label' => 'Abgelaufen', 'color' => 'red'];
+        } elseif ($this->shareIsExpiringSoon($share)) {
+            $badges[] = ['label' => 'Läuft bald ab', 'color' => 'amber'];
+        }
+
+        if (! empty($share['password'])) {
+            $badges[] = ['label' => 'Passwort', 'color' => 'zinc'];
+        }
+
+        if (! empty($share['writeable'])) {
+            $badges[] = ['label' => 'Gast-Upload', 'color' => 'zinc'];
+        }
+
+        $badges[] = ['label' => $this->shareFileCountLabel($share), 'color' => 'zinc'];
+
+        return $badges;
+    }
+
+    /**
+     * @param  array{id: string}  $share
+     */
+    public function shareFileCountLabel(array $share): string
+    {
+        $count = count($this->filesForShare($share['id']));
+
+        if ($count === 0) {
+            return 'Keine Dateien';
+        }
+
+        return $count === 1 ? '1 Datei' : $count.' Dateien';
+    }
+
     protected function appSettings(): AppSettings
     {
         $settings = IntranetAppCloudshareSettings::current()?->settings;
@@ -753,8 +798,14 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                 </div>
             </div>
 
-            @if ($this->searchTerm() !== '' && count($shares) > 0)
-                <flux:text class="text-sm">{{ count($this->filteredShares) }} von {{ count($shares) }} Freigaben</flux:text>
+            @if (count($shares) > 0)
+                <flux:text class="text-sm">
+                    @if ($this->searchTerm() !== '')
+                        {{ count($this->filteredShares) }} von {{ count($shares) }} {{ count($shares) === 1 ? 'Freigabe' : 'Freigaben' }}
+                    @else
+                        {{ count($shares) }} {{ count($shares) === 1 ? 'Freigabe' : 'Freigaben' }}
+                    @endif
+                </flux:text>
             @endif
 
             @if ($needsMicrosoftLogin)
@@ -828,151 +879,145 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                 @if ($this->shouldPollGuestUploads())
                     <flux:text class="text-sm text-zinc-500">Freigaben mit Gast-Upload werden automatisch aktualisiert.</flux:text>
                 @endif
+
                 @foreach ($this->filteredShares as $share)
-                    <flux:card
-                        wire:key="share-{{ $share['id'] }}"
-                        @class([
-                            'space-y-4',
-                            'ring-2 ring-red-500 bg-red-50! dark:bg-red-950! dark:ring-red-400' => $this->shareIsExpired($share),
-                            'ring-2 ring-blue-500 bg-blue-50! dark:bg-blue-900! dark:ring-sky-400' => $this->shareHasUpdatesSinceOpen($share['id']) && ! $this->shareIsExpired($share),
-                            'ring-2 ring-amber-500 bg-amber-50! dark:bg-amber-950! dark:ring-amber-400' => $this->shareIsExpiringSoon($share) && ! $this->shareIsExpired($share) && ! $this->shareHasUpdatesSinceOpen($share['id']),
-                        ])
-                    >
-                        <div class="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                                <flux:heading size="md">{{ $share['name'] }}</flux:heading>
-                                <flux:text class="text-sm">erstellt {{ $share['created_at'] }}</flux:text>
-                            </div>
-                            <div class="flex flex-wrap gap-2">
-                                @if (is_string($share['url']) && $share['url'] !== '')
-                                    <flux:button
-                                        size="sm"
-                                        variant="ghost"
-                                        icon="clipboard"
-                                        tooltip="Link kopieren"
-                                        aria-label="Link kopieren"
-                                        x-on:click="navigator.clipboard.writeText({{ \Illuminate\Support\Js::from($share['url']) }}).then(() => $flux.toast({ text: 'Link kopiert', variant: 'success' })).catch(() => $flux.toast({ text: 'Kopieren fehlgeschlagen', variant: 'danger' }))"
-                                    />
-                                    <flux:button
-                                        size="sm"
-                                        variant="ghost"
-                                        icon="arrow-top-right-on-square"
-                                        :href="$share['url']"
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        tooltip="Link öffnen"
-                                        aria-label="Link öffnen"
-                                    />
-                                @endif
-                                @if ($this->quotaRelative() < 90)
-                                    <flux:button size="sm" variant="primary" icon="arrow-up-tray" wire:click="openUploadModal('{{ $share['id'] }}', {{ \Illuminate\Support\Js::from($share['name']) }})">
-                                        Hochladen
-                                    </flux:button>
-                                @endif
-                                <flux:button size="sm" variant="ghost" icon="envelope" wire:click="openShareModal({{ \Illuminate\Support\Js::from($share['id']) }})">
-                                    Teilen
-                                </flux:button>
-                                @if ($this->shareCanExtendExpiration($share))
-                                    <flux:button
-                                        size="sm"
-                                        variant="ghost"
-                                        icon="calendar-days"
-                                        wire:click="openExtendModal({{ \Illuminate\Support\Js::from($share['id']) }})"
-                                    >
-                                        Gültigkeit verlängern
-                                    </flux:button>
-                                @endif
-                                <flux:button
-                                    size="sm"
-                                    variant="danger"
-                                    icon="trash"
-                                    wire:click="deleteItem({{ \Illuminate\Support\Js::from($share['id']) }})"
-                                    wire:confirm="Freigabe und alle Dateien wirklich löschen?"
-                                >
-                                    Löschen
-                                </flux:button>
-                            </div>
-                        </div>
-
-                        <div class="space-y-2">
-                            @if ($this->shareHasUpdatesSinceOpen($share['id']) || $this->shareIsExpired($share) || $this->shareIsExpiringSoon($share))
-                                <div class="flex flex-wrap gap-2">
-                                    @if ($this->shareHasUpdatesSinceOpen($share['id']))
-                                        <flux:badge color="lime">Aktualisiert</flux:badge>
-                                    @endif
-                                    @if ($this->shareIsExpired($share))
-                                        <flux:badge color="red">Abgelaufen</flux:badge>
-                                    @elseif ($this->shareIsExpiringSoon($share))
-                                        <flux:badge color="amber">Läuft bald ab</flux:badge>
-                                    @endif
-                                </div>
-                            @endif
-
-                            <dl class="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-700 dark:border-zinc-700">
-                                @foreach ([
-                                    ['label' => 'Passwortschutz', 'value' => $this->sharePasswordProtectionLabel($share), 'highlight' => null],
-                                    ['label' => 'Gültig bis', 'value' => $this->shareExpirationLabel($share), 'highlight' => $this->shareExpirationHighlight($share)],
-                                    ['label' => 'Gast-Upload', 'value' => $this->shareGuestUploadLabel($share), 'highlight' => null],
-                                ] as $property)
-                                    <div class="flex flex-col gap-0.5 px-3 py-2 sm:flex-row sm:items-baseline sm:gap-4">
-                                        <dt class="w-40 shrink-0 text-sm font-medium text-zinc-500 dark:text-zinc-400">{{ $property['label'] }}</dt>
-                                        <dd @class([
-                                            'text-sm',
-                                            'font-medium text-red-700 dark:text-red-300' => $property['highlight'] === 'expired',
-                                            'font-medium text-amber-700 dark:text-amber-300' => $property['highlight'] === 'soon',
-                                            'text-zinc-800 dark:text-zinc-200' => $property['highlight'] === null,
-                                        ])>{{ $property['value'] }}</dd>
+                    <flux:card wire:key="share-{{ $share['id'] }}" class="glass-card">
+                        <flux:accordion transition>
+                            <flux:accordion.item>
+                                <flux:accordion.heading>
+                                    <div class="flex min-w-0 flex-1 flex-wrap items-start justify-between gap-3 pr-2">
+                                        <div class="min-w-0 text-left">
+                                            <flux:heading size="md">{{ $share['name'] }}</flux:heading>
+                                            <flux:text class="text-sm">erstellt {{ $share['created_at'] }}</flux:text>
+                                        </div>
+                                        <div class="flex flex-wrap items-center gap-1">
+                                            @foreach ($this->shareHeaderBadges($share) as $badge)
+                                                <flux:badge :color="$badge['color']" size="sm">{{ $badge['label'] }}</flux:badge>
+                                            @endforeach
+                                        </div>
                                     </div>
-                                @endforeach
-                            </dl>
-                        </div>
+                                </flux:accordion.heading>
 
-                        @if (count($this->filesForShare($share['id'])) > 0)
-                            <div>
-                                <flux:heading size="sm" class="mb-2">Dateien</flux:heading>
-                                <flux:table>
-                                    <flux:table.columns>
-                                        <flux:table.column>Name</flux:table.column>
-                                        <flux:table.column>Größe</flux:table.column>
-                                        <flux:table.column></flux:table.column>
-                                    </flux:table.columns>
-                                    <flux:table.rows>
-                                        @foreach ($this->filesForShare($share['id']) as $file)
-                                            <flux:table.row
-                                                wire:key="file-{{ $file['id'] }}"
-                                                @class([
-                                                    'bg-blue-50! dark:bg-blue-800!' => $this->fileIsNewSinceOpen((string) $file['id']),
-                                                ])
+                                <flux:accordion.content>
+                                    <div class="space-y-4 pt-2">
+                                        <div class="flex flex-wrap gap-2">
+                                            @if (is_string($share['url']) && $share['url'] !== '')
+                                                <flux:button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    icon="clipboard"
+                                                    tooltip="Link kopieren"
+                                                    aria-label="Link kopieren"
+                                                    x-on:click="navigator.clipboard.writeText({{ \Illuminate\Support\Js::from($share['url']) }}).then(() => $flux.toast({ text: 'Link kopiert', variant: 'success' })).catch(() => $flux.toast({ text: 'Kopieren fehlgeschlagen', variant: 'danger' }))"
+                                                />
+                                                <flux:button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    icon="arrow-top-right-on-square"
+                                                    :href="$share['url']"
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    tooltip="Link öffnen"
+                                                    aria-label="Link öffnen"
+                                                />
+                                            @endif
+                                            @if ($this->quotaRelative() < 90)
+                                                <flux:button size="sm" variant="primary" icon="arrow-up-tray" wire:click="openUploadModal('{{ $share['id'] }}', {{ \Illuminate\Support\Js::from($share['name']) }})">
+                                                    Hochladen
+                                                </flux:button>
+                                            @endif
+                                            <flux:button size="sm" variant="ghost" icon="envelope" wire:click="openShareModal({{ \Illuminate\Support\Js::from($share['id']) }})">
+                                                Teilen
+                                            </flux:button>
+                                            @if ($this->shareCanExtendExpiration($share))
+                                                <flux:button
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    icon="calendar-days"
+                                                    wire:click="openExtendModal({{ \Illuminate\Support\Js::from($share['id']) }})"
+                                                >
+                                                    Gültigkeit verlängern
+                                                </flux:button>
+                                            @endif
+                                            <flux:button
+                                                size="sm"
+                                                variant="danger"
+                                                icon="trash"
+                                                wire:click="deleteItem({{ \Illuminate\Support\Js::from($share['id']) }})"
+                                                wire:confirm="Freigabe und alle Dateien wirklich löschen?"
                                             >
-                                                <flux:table.cell>
-                                                    <div class="flex flex-wrap items-center gap-2">
-                                                        <span>{{ $file['file'] }}</span>
-                                                        @if ($this->fileIsNewSinceOpen((string) $file['id']))
-                                                            <flux:badge color="lime">Neu</flux:badge>
-                                                        @endif
-                                                    </div>
-                                                </flux:table.cell>
-                                                <flux:table.cell>{{ $this->formatFileSize($file['size']) }}</flux:table.cell>
-                                                <flux:table.cell class="text-right">
-                                                    <div class="flex justify-end gap-2">
-                                                        <flux:button size="sm" variant="ghost" icon="arrow-down-tray" :href="$file['href']" target="_blank" />
-                                                        <flux:button
-                                                            size="sm"
-                                                            variant="danger"
-                                                            icon="trash"
-                                                            wire:click="deleteItem({{ \Illuminate\Support\Js::from($file['id']) }})"
-                                                            wire:confirm="Datei wirklich löschen?"
-                                                        />
-                                                    </div>
-                                                </flux:table.cell>
-                                            </flux:table.row>
-                                        @endforeach
-                                    </flux:table.rows>
-                                </flux:table>
-                            </div>
-                        @else
-                            <flux:text class="text-sm text-zinc-500">Keine Dateien</flux:text>
-                        @endif
+                                                Löschen
+                                            </flux:button>
+                                        </div>
+
+                                        <dl class="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-700 dark:border-zinc-700">
+                                            @foreach ([
+                                                ['label' => 'Passwortschutz', 'value' => $this->sharePasswordProtectionLabel($share), 'highlight' => null],
+                                                ['label' => 'Gültig bis', 'value' => $this->shareExpirationLabel($share), 'highlight' => $this->shareExpirationHighlight($share)],
+                                                ['label' => 'Gast-Upload', 'value' => $this->shareGuestUploadLabel($share), 'highlight' => null],
+                                            ] as $property)
+                                                <div class="flex flex-col gap-0.5 px-3 py-2 sm:flex-row sm:items-baseline sm:gap-4">
+                                                    <dt class="w-40 shrink-0 text-sm font-medium text-zinc-500 dark:text-zinc-400">{{ $property['label'] }}</dt>
+                                                    <dd @class([
+                                                        'text-sm',
+                                                        'font-medium text-red-700 dark:text-red-300' => $property['highlight'] === 'expired',
+                                                        'font-medium text-amber-700 dark:text-amber-300' => $property['highlight'] === 'soon',
+                                                        'text-zinc-800 dark:text-zinc-200' => $property['highlight'] === null,
+                                                    ])>{{ $property['value'] }}</dd>
+                                                </div>
+                                            @endforeach
+                                        </dl>
+
+                                        @if (count($this->filesForShare($share['id'])) > 0)
+                                            <div>
+                                                <flux:heading size="sm" class="mb-2">Dateien</flux:heading>
+                                                <flux:table>
+                                                    <flux:table.columns>
+                                                        <flux:table.column>Name</flux:table.column>
+                                                        <flux:table.column>Größe</flux:table.column>
+                                                        <flux:table.column></flux:table.column>
+                                                    </flux:table.columns>
+                                                    <flux:table.rows>
+                                                        @foreach ($this->filesForShare($share['id']) as $file)
+                                                            <flux:table.row
+                                                                wire:key="file-{{ $file['id'] }}"
+                                                                @class([
+                                                                    'bg-blue-50! dark:bg-blue-800!' => $this->fileIsNewSinceOpen((string) $file['id']),
+                                                                ])
+                                                            >
+                                                                <flux:table.cell>
+                                                                    <div class="flex flex-wrap items-center gap-2">
+                                                                        <span>{{ $file['file'] }}</span>
+                                                                        @if ($this->fileIsNewSinceOpen((string) $file['id']))
+                                                                            <flux:badge color="lime">Neu</flux:badge>
+                                                                        @endif
+                                                                    </div>
+                                                                </flux:table.cell>
+                                                                <flux:table.cell>{{ $this->formatFileSize($file['size']) }}</flux:table.cell>
+                                                                <flux:table.cell class="text-right">
+                                                                    <div class="flex justify-end gap-2">
+                                                                        <flux:button size="sm" variant="ghost" icon="arrow-down-tray" :href="$file['href']" target="_blank" />
+                                                                        <flux:button
+                                                                            size="sm"
+                                                                            variant="danger"
+                                                                            icon="trash"
+                                                                            wire:click="deleteItem({{ \Illuminate\Support\Js::from($file['id']) }})"
+                                                                            wire:confirm="Datei wirklich löschen?"
+                                                                        />
+                                                                    </div>
+                                                                </flux:table.cell>
+                                                            </flux:table.row>
+                                                        @endforeach
+                                                    </flux:table.rows>
+                                                </flux:table>
+                                            </div>
+                                        @else
+                                            <flux:text class="text-sm text-zinc-500">Keine Dateien</flux:text>
+                                        @endif
+                                    </div>
+                                </flux:accordion.content>
+                            </flux:accordion.item>
+                        </flux:accordion>
                     </flux:card>
                 @endforeach
             </div>
