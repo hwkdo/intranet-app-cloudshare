@@ -18,6 +18,8 @@ class CloudshareSharedMail extends Mailable
 
     public const DEFAULT_SUBJECT = 'Der Cloud-Ordner wurde für Sie freigegeben';
 
+    public const LOGO_URL = 'https://www.hwk-do.de/wp-content/uploads/2024/06/cloudshare-e1718175949841.png';
+
     /**
      * @param  array{name?: string, url: string, password?: bool, expiration?: ?string, writeable?: bool}  $share
      */
@@ -36,6 +38,23 @@ class CloudshareSharedMail extends Mailable
         }
 
         return 'Der Cloud-Ordner '.$shareName.' wurde für Sie freigegeben';
+    }
+
+    /**
+     * Kompaktes HTML-Snippet für das Outlook-Add-in (ohne Mail-Layout, Signatur und Fließtext).
+     *
+     * @param  array{name?: string, url?: string, password?: bool, expiration?: ?string, writeable?: bool}  $share
+     */
+    public static function outlookSnippetHtml(array $share): string
+    {
+        return view('intranet-app-cloudshare::mail.outlook-compose', [
+            'logoUrl' => self::LOGO_URL,
+            'shareName' => trim((string) ($share['name'] ?? '')),
+            'shareUrl' => trim((string) ($share['url'] ?? '')),
+            'passwordProtectionLabel' => ! empty($share['password']) ? 'aktiviert' : 'nicht aktiviert',
+            'expirationLabel' => self::expirationLabelFor($share),
+            'guestUploadLabel' => ! empty($share['writeable']) ? 'aktiviert' : 'nicht aktiviert',
+        ])->render();
     }
 
     public function envelope(): Envelope
@@ -114,7 +133,15 @@ class CloudshareSharedMail extends Mailable
 
     public function expirationLabel(): string
     {
-        $expiration = $this->share['expiration'] ?? null;
+        return self::expirationLabelFor($this->share);
+    }
+
+    /**
+     * @param  array{expiration?: ?string}  $share
+     */
+    public static function expirationLabelFor(array $share): string
+    {
+        $expiration = $share['expiration'] ?? null;
 
         if (is_string($expiration) && trim($expiration) !== '') {
             return trim($expiration);

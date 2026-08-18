@@ -128,6 +128,34 @@ it('stellt die signatur in html und text zeilenweise dar', function (): void {
     $mailable->assertDontSeeInText('Fax:');
 });
 
+it('erzeugt ein kompaktes zweispaltiges outlook-snippet', function (): void {
+    $html = CloudshareSharedMail::outlookSnippetHtml(cloudshareSampleShare([
+        'name' => 'Projekt-X',
+        'url' => 'https://1drv.ms/example',
+        'password' => true,
+        'expiration' => '31.12.2026 23:59 Uhr',
+        'writeable' => false,
+    ]));
+
+    expect($html)
+        ->toContain('width="148"')
+        ->toContain('alt="Cloud Share"')
+        ->toContain('title="Zur Freigabe"')
+        ->toContain('Freigabe')
+        ->toContain('Projekt-X')
+        ->toContain('Passwortschutz: aktiviert')
+        ->toContain('Gültig bis: 31.12.2026 23:59 Uhr')
+        ->toContain('Gast-Upload: nicht aktiviert')
+        ->toContain('Zur Freigabe')
+        ->toContain('https://1drv.ms/example')
+        ->not->toContain('colspan="2"')
+        ->not->toContain('hat den Cloud-Ordner')
+        ->not->toContain('Bei Rückfragen')
+        ->not->toContain('Handwerkskammer');
+
+    expect(substr_count($html, 'href="https://1drv.ms/example"'))->toBe(2);
+});
+
 it('laesst leere signaturfelder weg', function (): void {
     $sender = cloudshareMailSender([
         'username' => 'mail.sender.minimal',

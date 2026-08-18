@@ -24,7 +24,7 @@ class ShareComposeController extends Controller
         $subject = CloudshareSharedMail::subjectForShare((string) ($resolved['name'] ?? ''));
 
         return response()->json([
-            'html' => $cloudshare->previewShareMail($request->user(), $resolved, $subject),
+            'html' => CloudshareSharedMail::outlookSnippetHtml($resolved),
             'subject' => $subject,
         ]);
     }
