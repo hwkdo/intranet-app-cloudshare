@@ -833,9 +833,9 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                         wire:key="share-{{ $share['id'] }}"
                         @class([
                             'space-y-4',
-                            'ring-2 ring-red-500 bg-red-50! dark:bg-red-950/40 dark:ring-red-400' => $this->shareIsExpired($share),
+                            'ring-2 ring-red-500 bg-red-50! dark:bg-red-950! dark:ring-red-400' => $this->shareIsExpired($share),
                             'ring-2 ring-blue-500 bg-blue-50! dark:bg-blue-900! dark:ring-sky-400' => $this->shareHasUpdatesSinceOpen($share['id']) && ! $this->shareIsExpired($share),
-                            'ring-2 ring-amber-500 bg-amber-50! dark:bg-amber-950/40 dark:ring-amber-400' => $this->shareIsExpiringSoon($share) && ! $this->shareIsExpired($share) && ! $this->shareHasUpdatesSinceOpen($share['id']),
+                            'ring-2 ring-amber-500 bg-amber-50! dark:bg-amber-950! dark:ring-amber-400' => $this->shareIsExpiringSoon($share) && ! $this->shareIsExpired($share) && ! $this->shareHasUpdatesSinceOpen($share['id']),
                         ])
                     >
                         <div class="flex flex-wrap items-start justify-between gap-3">
