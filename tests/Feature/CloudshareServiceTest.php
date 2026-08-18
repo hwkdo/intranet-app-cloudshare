@@ -489,6 +489,42 @@ it('sendet nur die bitwarden-mail ohne freigabe-mail', function (): void {
     Mail::assertSent(CloudsharePasswordSendMail::class, 1);
 });
 
+it('sendet bitwarden-mail an mehrere empfaenger mit angepasstem zugriffslimit', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    CloudshareShare::query()->create([
+        'user_id' => $user->id,
+        'onedrive_item_id' => 'share-multi',
+        'folder_name' => 'Demo',
+        'password' => 'secret123',
+    ]);
+
+    mockCloudshareOneDrive();
+    mock(HwkAdminService::class)
+        ->shouldReceive('createBitwardenSend')
+        ->once()
+        ->with('Cloudshare: Demo', 'secret123', 2, 7)
+        ->andReturn('https://vault.example.com/send/multi');
+
+    $result = app(CloudshareServiceInterface::class)->sendPasswordViaBitwarden(
+        $user,
+        [
+            'name' => 'Demo',
+            'id' => 'share-multi',
+        ],
+        ['eins@example.com', 'zwei@example.com', 'eins@example.com'],
+    );
+
+    expect($result['bitwarden_sent'])->toBeTrue();
+
+    Mail::assertSent(CloudsharePasswordSendMail::class, function (CloudsharePasswordSendMail $mail) use ($user): bool {
+        return $mail->hasTo('eins@example.com')
+            && $mail->hasTo('zwei@example.com')
+            && $mail->hasCc($user->email);
+    });
+});
+
 it('reicht fehlende microsoft tokens als exception durch', function (): void {
     $user = cloudshareUser();
     actingAs($user);

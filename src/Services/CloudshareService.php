@@ -258,7 +258,7 @@ class CloudshareService implements CloudshareServiceInterface
         return $result;
     }
 
-    public function sendPasswordViaBitwarden(Authenticatable $user, array $share, string $email): array
+    public function sendPasswordViaBitwarden(Authenticatable $user, array $share, array|string $emails): array
     {
         $shareId = (string) ($share['id'] ?? '');
         $stored = CloudshareShare::query()
@@ -273,13 +273,31 @@ class CloudshareService implements CloudshareServiceInterface
             ];
         }
 
+        $recipients = collect(is_array($emails) ? $emails : [$emails])
+            ->map(fn (mixed $email): string => is_string($email) ? trim($email) : '')
+            ->filter(fn (string $email): bool => $email !== '')
+            ->unique(fn (string $email): string => strtolower($email))
+            ->values()
+            ->all();
+
+        if ($recipients === []) {
+            return [
+                'bitwarden_sent' => false,
+                'bitwarden_error' => 'Keine Empfänger-E-Mail angegeben.',
+            ];
+        }
+
         try {
             $appSettings = $this->appSettings();
+            $maxAccessCount = max(
+                (int) $appSettings->defaultBwSendMaxAccessCount,
+                count($recipients),
+            );
 
             $accessUrl = app(HwkAdminService::class)->createBitwardenSend(
                 'Cloudshare: '.$share['name'],
                 $stored->password,
-                $appSettings->defaultBwSendMaxAccessCount,
+                $maxAccessCount,
                 $appSettings->defaultBwSendDeleteInDays,
             );
 
@@ -287,7 +305,7 @@ class CloudshareService implements CloudshareServiceInterface
                 throw new RuntimeException('Bitwarden Send lieferte keine gültige URL.');
             }
 
-            Mail::to($email)
+            Mail::to($recipients)
                 ->cc($user->email)
                 ->send(new CloudsharePasswordSendMail($share['name'], $accessUrl, $user));
 

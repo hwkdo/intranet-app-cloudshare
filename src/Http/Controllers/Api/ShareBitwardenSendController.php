@@ -31,7 +31,7 @@ class ShareBitwardenSendController extends Controller
         $result = $cloudshare->sendPasswordViaBitwarden(
             $request->user(),
             $resolved,
-            $request->validated('email'),
+            $request->validated('emails'),
         );
 
         if (! $result['bitwarden_sent']) {

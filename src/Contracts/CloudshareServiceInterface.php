@@ -84,7 +84,8 @@ interface CloudshareServiceInterface
 
     /**
      * @param  array{name: string, id?: string, url?: string, password?: bool, has_stored_password?: bool, expiration?: ?string, writeable?: bool}  $share
+     * @param  list<string>|string  $emails
      * @return array{bitwarden_sent: bool, bitwarden_error: ?string}
      */
-    public function sendPasswordViaBitwarden(Authenticatable $user, array $share, string $email): array;
+    public function sendPasswordViaBitwarden(Authenticatable $user, array $share, array|string $emails): array;
 }

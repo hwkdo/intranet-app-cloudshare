@@ -10,17 +10,17 @@ use function Pest\Laravel\mock;
 
 it('liefert 401 wenn kein bearer token gesendet wird', function (): void {
     $this->postJson('/api/cloudshare/shares/item-123/bitwarden-send', [
-        'email' => 'gast@example.com',
+        'emails' => ['gast@example.com'],
     ])->assertUnauthorized();
 });
 
-it('validiert die empfaenger-email', function (): void {
+it('validiert die empfaenger-emails', function (): void {
     $user = User::factory()->create();
     Passport::actingAs($user);
 
     $this->postJson('/api/cloudshare/shares/item-123/bitwarden-send', [])
         ->assertUnprocessable()
-        ->assertJsonValidationErrors(['email']);
+        ->assertJsonValidationErrors(['emails']);
 });
 
 it('lehnt bitwarden send ohne hinterlegtes passwort ab', function (): void {
@@ -35,13 +35,13 @@ it('lehnt bitwarden send ohne hinterlegtes passwort ab', function (): void {
         ]));
 
     $this->postJson('/api/cloudshare/shares/item-123/bitwarden-send', [
-        'email' => 'gast@example.com',
+        'emails' => ['gast@example.com'],
     ])
         ->assertUnprocessable()
         ->assertJsonPath('bitwarden_sent', false);
 });
 
-it('sendet das passwort per bitwarden send', function (): void {
+it('sendet das passwort per bitwarden send an alle empfaenger', function (): void {
     $user = User::factory()->create();
     Passport::actingAs($user);
 
@@ -53,13 +53,15 @@ it('sendet das passwort per bitwarden send', function (): void {
         ->andReturn($share);
     $mock->shouldReceive('sendPasswordViaBitwarden')
         ->once()
+        ->withArgs(fn ($authUser, $resolvedShare, $emails): bool => $emails === ['gast@example.com', 'zweite@example.com']
+            && ($resolvedShare['id'] ?? null) === $share['id'])
         ->andReturn([
             'bitwarden_sent' => true,
             'bitwarden_error' => null,
         ]);
 
     $this->postJson('/api/cloudshare/shares/item-123/bitwarden-send', [
-        'email' => 'gast@example.com',
+        'emails' => ['gast@example.com', 'zweite@example.com'],
     ])
         ->assertOk()
         ->assertJsonPath('bitwarden_sent', true)

@@ -19,7 +19,8 @@ class StoreBitwardenSendRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'email' => ['required', 'email'],
+            'emails' => ['required', 'array', 'min:1'],
+            'emails.*' => ['required', 'email'],
         ];
     }
 
@@ -29,7 +30,8 @@ class StoreBitwardenSendRequest extends FormRequest
     public function attributes(): array
     {
         return [
-            'email' => 'Empfänger',
+            'emails' => 'Empfänger',
+            'emails.*' => 'Empfänger',
         ];
     }
 }
