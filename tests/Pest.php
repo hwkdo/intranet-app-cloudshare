@@ -17,7 +17,8 @@ if (! function_exists('cloudshareSampleShare')) {
      *     password: bool,
      *     has_stored_password: bool,
      *     expiration: ?string,
-     *     writeable: bool
+     *     writeable: bool,
+     *     file_count: int
      * }
      */
     function cloudshareSampleShare(array $overrides = []): array
@@ -31,6 +32,7 @@ if (! function_exists('cloudshareSampleShare')) {
             'has_stored_password' => true,
             'expiration' => '31.12.2026 23:59 Uhr',
             'writeable' => false,
+            'file_count' => 2,
         ], $overrides);
     }
 }

@@ -29,7 +29,8 @@ it('liefert die shares des authentifizierten benutzers', function (): void {
         ->assertJsonCount(1, 'data')
         ->assertJsonPath('data.0.id', 'item-123')
         ->assertJsonPath('data.0.name', 'Projekt-X')
-        ->assertJsonPath('data.0.has_stored_password', true);
+        ->assertJsonPath('data.0.has_stored_password', true)
+        ->assertJsonPath('data.0.file_count', 2);
 });
 
 it('erstellt eine neue freigabe', function (): void {

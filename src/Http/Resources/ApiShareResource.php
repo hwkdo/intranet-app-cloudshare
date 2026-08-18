@@ -16,7 +16,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
  *     password: bool,
  *     has_stored_password: bool,
  *     expiration: ?string,
- *     writeable: bool
+ *     writeable: bool,
+ *     file_count: int
  * } $resource
  */
 class ApiShareResource extends JsonResource
@@ -30,12 +31,13 @@ class ApiShareResource extends JsonResource
      *     password: bool,
      *     has_stored_password: bool,
      *     expiration: ?string,
-     *     writeable: bool
+     *     writeable: bool,
+     *     file_count: int
      * }
      */
     public function toArray(Request $request): array
     {
-        /** @var array{name: string, id: string, url: string, created_at: string, password: bool, has_stored_password: bool, expiration: ?string, writeable: bool} $share */
+        /** @var array{name: string, id: string, url: string, created_at: string, password: bool, has_stored_password: bool, expiration: ?string, writeable: bool, file_count?: int} $share */
         $share = $this->resource;
 
         return [
@@ -47,6 +49,7 @@ class ApiShareResource extends JsonResource
             'has_stored_password' => $share['has_stored_password'],
             'expiration' => $share['expiration'],
             'writeable' => $share['writeable'],
+            'file_count' => (int) ($share['file_count'] ?? 0),
         ];
     }
 }

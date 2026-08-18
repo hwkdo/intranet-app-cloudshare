@@ -18,7 +18,8 @@ trait ResolvesCloudshareShare
      *     password: bool,
      *     has_stored_password: bool,
      *     expiration: ?string,
-     *     writeable: bool
+     *     writeable: bool,
+     *     file_count: int
      * }
      */
     protected function resolveShare(CloudshareServiceInterface $cloudshare, Authenticatable $user, string $id): array

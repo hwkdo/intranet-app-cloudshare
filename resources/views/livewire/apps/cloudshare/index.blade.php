@@ -15,7 +15,7 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
 {
     use WithFileUploads;
 
-    /** @var list<array{name: string, id: string, url: string, created_at: string, password: bool, has_stored_password: bool, expiration: ?string, writeable: bool}> */
+    /** @var list<array{name: string, id: string, url: string, created_at: string, password: bool, has_stored_password: bool, expiration: ?string, writeable: bool, file_count?: int}> */
     public array $shares = [];
 
     /** @var array{quota_free: int|float|null, quota_used: int|float|null, quota_total: int|float|null, quota_relative: float}|null */

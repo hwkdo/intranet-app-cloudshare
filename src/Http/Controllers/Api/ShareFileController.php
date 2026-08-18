@@ -8,12 +8,27 @@ use App\Http\Controllers\Controller;
 use Hwkdo\IntranetAppCloudshare\Contracts\CloudshareServiceInterface;
 use Hwkdo\IntranetAppCloudshare\Http\Controllers\Api\Concerns\ResolvesCloudshareShare;
 use Hwkdo\IntranetAppCloudshare\Http\Requests\Api\StoreShareFileRequest;
+use Hwkdo\IntranetAppCloudshare\Http\Resources\ApiShareFileResource;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\UploadedFile;
 
 class ShareFileController extends Controller
 {
     use ResolvesCloudshareShare;
+
+    public function index(
+        Request $request,
+        string $share,
+        CloudshareServiceInterface $cloudshare,
+    ): AnonymousResourceCollection {
+        $resolved = $this->resolveShare($cloudshare, $request->user(), $share);
+
+        return ApiShareFileResource::collection(
+            $cloudshare->listFiles($request->user(), $resolved['name']),
+        );
+    }
 
     public function store(
         StoreShareFileRequest $request,

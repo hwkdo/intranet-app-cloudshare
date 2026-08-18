@@ -55,8 +55,11 @@ it('listet freigaben über den oneDrive service', function (): void {
     $user = cloudshareUser();
     actingAs($user);
 
+    $folderFacet = Mockery::mock();
+    $folderFacet->shouldReceive('getChildCount')->andReturn(3);
+
     $folder = Mockery::mock();
-    $folder->shouldReceive('getFolder')->andReturn((object) []);
+    $folder->shouldReceive('getFolder')->andReturn($folderFacet);
     $folder->shouldReceive('getShared')->andReturn((object) []);
     $folder->shouldReceive('getId')->andReturn('folder-1');
     $folder->shouldReceive('getName')->andReturn('Projekt');
@@ -83,7 +86,8 @@ it('listet freigaben über den oneDrive service', function (): void {
         ->and($shares[0]['url'])->toBe('https://example.com/share')
         ->and($shares[0]['password'])->toBeTrue()
         ->and($shares[0]['has_stored_password'])->toBeFalse()
-        ->and($shares[0]['writeable'])->toBeTrue();
+        ->and($shares[0]['writeable'])->toBeTrue()
+        ->and($shares[0]['file_count'])->toBe(3);
 });
 
 it('erzeugt beim listen keinen neuen graph-link wenn keine url bekannt ist', function (): void {

@@ -14,6 +14,11 @@ it('liefert 401 wenn kein bearer token gesendet wird', function (): void {
         ->assertUnauthorized();
 });
 
+it('liefert 401 wenn dateien ohne bearer token gelesen werden', function (): void {
+    $this->getJson('/api/cloudshare/shares/item-123/files')
+        ->assertUnauthorized();
+});
+
 it('liefert 404 wenn die freigabe nicht existiert', function (): void {
     $user = User::factory()->create();
     Passport::actingAs($user);
@@ -54,4 +59,47 @@ it('laedt eine datei in eine bestehende freigabe hoch', function (): void {
     ])
         ->assertCreated()
         ->assertJsonPath('file', 'dokument.pdf');
+});
+
+it('liefert 404 wenn dateien einer unbekannten freigabe gelesen werden', function (): void {
+    $user = User::factory()->create();
+    Passport::actingAs($user);
+
+    mock(CloudshareServiceInterface::class)
+        ->shouldReceive('findShare')
+        ->once()
+        ->andReturn(null);
+
+    $this->getJson('/api/cloudshare/shares/item-missing/files')
+        ->assertNotFound();
+});
+
+it('listet die dateien einer bestehenden freigabe', function (): void {
+    $user = User::factory()->create();
+    Passport::actingAs($user);
+
+    $share = cloudshareSampleShare();
+
+    $mock = mock(CloudshareServiceInterface::class);
+    $mock->shouldReceive('findShare')
+        ->once()
+        ->andReturn($share);
+    $mock->shouldReceive('listFiles')
+        ->once()
+        ->andReturn([
+            [
+                'file' => 'angebot.pdf',
+                'href' => 'https://1drv.ms/angebot',
+                'modified' => '18.08.2026 10:00',
+                'size' => 128000,
+                'id' => 'file-1',
+            ],
+        ]);
+
+    $this->getJson('/api/cloudshare/shares/item-123/files')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', 'file-1')
+        ->assertJsonPath('data.0.name', 'angebot.pdf')
+        ->assertJsonPath('data.0.size', 128000);
 });

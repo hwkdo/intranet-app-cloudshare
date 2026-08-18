@@ -17,7 +17,8 @@ interface CloudshareServiceInterface
      *     password: bool,
      *     has_stored_password: bool,
      *     expiration: ?string,
-     *     writeable: bool
+     *     writeable: bool,
+     *     file_count: int
      * }>
      */
     public function listShares(Authenticatable $user): array;
@@ -32,7 +33,8 @@ interface CloudshareServiceInterface
      *     password: bool,
      *     has_stored_password: bool,
      *     expiration: ?string,
-     *     writeable: bool
+     *     writeable: bool,
+     *     file_count: int
      * }
      */
     public function createShare(Authenticatable $user, array $data): array;
@@ -46,7 +48,8 @@ interface CloudshareServiceInterface
      *     password: bool,
      *     has_stored_password: bool,
      *     expiration: ?string,
-     *     writeable: bool
+     *     writeable: bool,
+     *     file_count: int
      * }|null
      */
     public function findShare(Authenticatable $user, string $id): ?array;

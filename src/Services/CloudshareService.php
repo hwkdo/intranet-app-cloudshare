@@ -136,6 +136,7 @@ class CloudshareService implements CloudshareServiceInterface
             'has_stored_password' => $password !== null,
             'expiration' => Carbon::parse($expiresAt)->format('d.m.Y H:i').' Uhr',
             'writeable' => $guestUpload,
+            'file_count' => 0,
         ];
     }
 
@@ -361,7 +362,8 @@ class CloudshareService implements CloudshareServiceInterface
      *     password: bool,
      *     has_stored_password: bool,
      *     expiration: ?string,
-     *     writeable: bool
+     *     writeable: bool,
+     *     file_count: int
      * }|null
      */
     protected function mapShare(mixed $share, string $upn, Collection $storedByItemId, MsGraphOneDriveServiceInterface $oneDrive): ?array
@@ -395,7 +397,33 @@ class CloudshareService implements CloudshareServiceInterface
             'has_stored_password' => $hasStoredPassword,
             'expiration' => $expiration,
             'writeable' => in_array('write', $roles, true),
+            'file_count' => $this->folderChildCount($share),
         ];
+    }
+
+    protected function folderChildCount(mixed $share): int
+    {
+        if (! is_object($share) || ! method_exists($share, 'getFolder')) {
+            return 0;
+        }
+
+        try {
+            $folder = $share->getFolder();
+        } catch (Throwable) {
+            return 0;
+        }
+
+        if (! is_object($folder) || ! method_exists($folder, 'getChildCount')) {
+            return 0;
+        }
+
+        try {
+            $count = $folder->getChildCount();
+        } catch (Throwable) {
+            return 0;
+        }
+
+        return is_numeric($count) ? max(0, (int) $count) : 0;
     }
 
     protected function shareUrlFromPermission(mixed $perm): string
