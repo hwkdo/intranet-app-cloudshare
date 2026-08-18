@@ -22,6 +22,17 @@ class CloudsharePasswordSendMail extends Mailable
         public Authenticatable $sender,
     ) {}
 
+    public static function subjectForShare(string $shareName): string
+    {
+        $shareName = trim($shareName);
+
+        if ($shareName === '') {
+            return 'Passwort für einen Cloud Share Ordner';
+        }
+
+        return 'Passwort für den Cloud Share Ordner '.$shareName;
+    }
+
     public function envelope(): Envelope
     {
         $fromEmail = (string) ($this->sender->email ?? config('mail.from.address'));
@@ -29,7 +40,7 @@ class CloudsharePasswordSendMail extends Mailable
 
         return new Envelope(
             from: new Address($fromEmail, $fromName),
-            subject: 'Zugangspasswort zur Cloudshare-Freigabe '.$this->shareName,
+            subject: self::subjectForShare($this->shareName),
         );
     }
 

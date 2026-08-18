@@ -297,7 +297,7 @@ class CloudshareService implements CloudshareServiceInterface
             );
 
             $accessUrl = app(HwkAdminService::class)->createBitwardenSend(
-                'Cloudshare: '.$share['name'],
+                'Cloud Share: '.$share['name'],
                 $stored->password,
                 $maxAccessCount,
                 $appSettings->defaultBwSendDeleteInDays,

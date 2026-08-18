@@ -1,11 +1,15 @@
 <x-mail::message>
-{{ $user->name }} stellt Ihnen das Zugangspasswort zur Cloudshare-Freigabe **{{ $shareName }}** sicher über Bitwarden Send bereit.
+{{ $user->name }} stellt Ihnen das Passwort für den Cloud Share Ordner {{ $shareName }} bereit.
 
-Das Passwort selbst steht nicht in dieser E-Mail. Öffnen Sie den folgenden Link, um es abzurufen:
+Das Passwort steht nicht in dieser E-Mail. Öffnen Sie den folgenden Link, um es über Bitwarden Send abzurufen:
 
 <x-mail::button :url="$accessUrl">
-Passwort sicher abrufen
+Passwort abrufen
 </x-mail::button>
 
-Bei Rückfragen wenden Sie sich bitte an {{ $user->name }} ({{ $user->email }}).
+Link zum Passwort: {{ $accessUrl }}
+
+Der Link ist nur einmal verwendbar. Nach dem Abruf können Sie ihn nicht erneut öffnen. Kopieren Sie das Passwort daher direkt und bewahren Sie es sicher auf.
+
+Wenn der Link bereits verwendet wurde oder Sie das Passwort nicht kopiert haben, fordern Sie bitte bei {{ $user->name }} ({{ $user->email }}) einen neuen Link beziehungsweise ein neues Passwort an.
 </x-mail::message>

@@ -472,7 +472,7 @@ it('sendet bitwarden-send-mail wenn option aktiv und passwort gespeichert', func
     mock(HwkAdminService::class)
         ->shouldReceive('createBitwardenSend')
         ->once()
-        ->with('Cloudshare: Demo', 'secret123', 1, 7)
+        ->with('Cloud Share: Demo', 'secret123', 1, 7)
         ->andReturn('https://vault.example.com/send/abc');
 
     $result = app(CloudshareServiceInterface::class)->sendShareMail(
@@ -537,7 +537,7 @@ it('uebergibt bitwarden-send defaults aus app settings', function (): void {
     mock(HwkAdminService::class)
         ->shouldReceive('createBitwardenSend')
         ->once()
-        ->with('Cloudshare: Demo', 'secret123', 3, 14)
+        ->with('Cloud Share: Demo', 'secret123', 3, 14)
         ->andReturn('https://vault.example.com/send/xyz');
 
     $result = app(CloudshareServiceInterface::class)->sendShareMail(
@@ -632,7 +632,7 @@ it('sendet bitwarden-mail an mehrere empfaenger mit angepasstem zugriffslimit', 
     mock(HwkAdminService::class)
         ->shouldReceive('createBitwardenSend')
         ->once()
-        ->with('Cloudshare: Demo', 'secret123', 2, 7)
+        ->with('Cloud Share: Demo', 'secret123', 2, 7)
         ->andReturn('https://vault.example.com/send/multi');
 
     $result = app(CloudshareServiceInterface::class)->sendPasswordViaBitwarden(
