@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Models\User;
 use Hwkdo\IntranetAppCloudshare\Contracts\CloudshareServiceInterface;
+use Hwkdo\IntranetAppCloudshare\Data\UserSettings;
 use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
 use Livewire\Livewire;
 use Spatie\Permission\Models\Permission;
@@ -201,4 +202,33 @@ it('zeigt den hinweis zur microsoft-anmeldung wenn der delegated token fehlt', f
         ->assertSee('Microsoft-Anmeldung erforderlich')
         ->assertSee('Mit Microsoft anmelden')
         ->assertSet('needsMicrosoftLogin', true);
+});
+
+it('zeigt in den benutzereinstellungen keinen anzeigemodus', function (): void {
+    $user = User::factory()->create([
+        'username' => 'settings.user',
+        'vorname' => 'Settings',
+        'nachname' => 'User',
+        'email' => 'settings.user@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    actingAs($user);
+
+    Livewire::test('intranet-app-cloudshare::apps.cloudshare.settings.user')
+        ->assertSuccessful()
+        ->assertDontSee('Raster-Ansicht')
+        ->assertDontSee('Listen-Ansicht')
+        ->assertDontSee('Tabellen-Ansicht')
+        ->assertDontSee('Standard-Anzeigemodus');
+});
+
+it('lädt user settings auch wenn altes defaultViewMode in den daten steht', function (): void {
+    $settings = UserSettings::from([
+        'defaultViewMode' => 'grid',
+        'notificationsEnabled' => false,
+    ]);
+
+    expect($settings->notificationsEnabled)->toBeFalse()
+        ->and($settings->toArray())->not->toHaveKey('defaultViewMode');
 });
