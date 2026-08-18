@@ -7,7 +7,6 @@ use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
-use Throwable;
 
 new class extends Component
 {
@@ -59,7 +58,7 @@ new class extends Component
             $this->errorMessage = $e->getMessage();
 
             return [];
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             $this->errorMessage = 'Freigaben konnten nicht geladen werden.';
 
             return [];
@@ -139,7 +138,7 @@ new class extends Component
             $this->showExtendModal = false;
             $this->needsMicrosoftLogin = true;
             $this->errorMessage = $e->getMessage();
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             $this->addError('extendExpiresAt', $e->getMessage());
         }
     }
