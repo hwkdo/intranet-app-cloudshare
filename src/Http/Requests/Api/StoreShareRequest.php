@@ -21,7 +21,7 @@ class StoreShareRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:200'],
             'password' => ['nullable', 'string', 'min:8'],
-            'expires_at' => ['required', 'date', 'after:now'],
+            'expires_at' => ['required', 'date', 'after:today'],
             'guest_upload' => ['sometimes', 'boolean'],
         ];
     }

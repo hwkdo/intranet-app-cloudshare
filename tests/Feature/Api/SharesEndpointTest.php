@@ -37,7 +37,7 @@ it('erstellt eine neue freigabe', function (): void {
     $user = User::factory()->create();
     Passport::actingAs($user);
 
-    $expiresAt = now()->addDay()->format('Y-m-d\TH:i');
+    $expiresAt = now()->addDay()->toDateString();
     $created = cloudshareSampleShare([
         'name' => 'Neue Freigabe',
         'id' => 'item-new',
@@ -67,4 +67,17 @@ it('validiert pflichtfelder beim anlegen', function (): void {
     $this->postJson('/api/cloudshare/shares', [])
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['name', 'expires_at']);
+});
+
+it('lehnt gültigkeit am heutigen tag ab', function (): void {
+    $user = User::factory()->create();
+    Passport::actingAs($user);
+
+    $this->postJson('/api/cloudshare/shares', [
+        'name' => 'Neue Freigabe',
+        'expires_at' => now()->toDateString(),
+        'guest_upload' => false,
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['expires_at']);
 });

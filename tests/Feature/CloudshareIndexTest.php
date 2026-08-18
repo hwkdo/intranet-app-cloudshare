@@ -166,6 +166,31 @@ it('validiert neue freigabe im livewire formular', function (): void {
         ->assertHasErrors(['newName', 'newExpiresAt']);
 });
 
+it('lehnt gültigkeit am heutigen tag im formular ab', function (): void {
+    $user = User::factory()->create([
+        'username' => 'date.user',
+        'vorname' => 'Date',
+        'nachname' => 'User',
+        'email' => 'date.user@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->andReturn([]);
+        $mock->shouldReceive('quota')->andReturn(null);
+        $mock->shouldReceive('createShare')->never();
+    });
+
+    actingAs($user);
+
+    Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->set('showCreateModal', true)
+        ->set('newName', 'Demo')
+        ->set('newExpiresAt', now()->toDateString())
+        ->call('createShare')
+        ->assertHasErrors(['newExpiresAt']);
+});
+
 it('verbietet admin ohne manage permission', function (): void {
     $user = User::factory()->create([
         'username' => 'user.only',

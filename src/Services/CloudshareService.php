@@ -83,15 +83,8 @@ class CloudshareService implements CloudshareServiceInterface
             throw new InvalidArgumentException('Passwort muss mindestens 8 Zeichen haben.');
         }
 
-        $expiresAt = (string) ($data['expires_at'] ?? '');
-
-        if ($expiresAt === '') {
-            throw new InvalidArgumentException('Gültigkeit ist erforderlich.');
-        }
-
-        if (Carbon::parse($expiresAt)->lessThanOrEqualTo(now())) {
-            throw new InvalidArgumentException('Die Gültigkeit muss in der Zukunft liegen.');
-        }
+        $expiresAt = $this->normalizeShareExpiresAt((string) ($data['expires_at'] ?? ''));
+        $expiresAtValue = $expiresAt->toIso8601String();
 
         $guestUpload = (bool) ($data['guest_upload'] ?? false);
         $upn = $this->upn($user);
@@ -102,9 +95,9 @@ class CloudshareService implements CloudshareServiceInterface
         $folderId = (string) $folder->getId();
 
         if ($guestUpload) {
-            $url = $oneDrive->shareReadWrite($upn, $folderId, $password, $expiresAt);
+            $url = $oneDrive->shareReadWrite($upn, $folderId, $password, $expiresAtValue);
         } else {
-            $url = $oneDrive->shareReadOnly($upn, $folderId, $password, $expiresAt);
+            $url = $oneDrive->shareReadOnly($upn, $folderId, $password, $expiresAtValue);
         }
 
         if (! is_string($url) || $url === '') {
@@ -142,7 +135,7 @@ class CloudshareService implements CloudshareServiceInterface
             'created_at' => now()->format('d.m.Y H:i'),
             'password' => $password !== null,
             'has_stored_password' => $password !== null,
-            'expiration' => Carbon::parse($expiresAt)->format('d.m.Y H:i').' Uhr',
+            'expiration' => $expiresAt->format('d.m.Y H:i').' Uhr',
             'writeable' => $guestUpload,
             'file_count' => 0,
         ];
@@ -173,7 +166,7 @@ class CloudshareService implements CloudshareServiceInterface
             $files[] = [
                 'file' => $item->getName(),
                 'href' => $item->getWebUrl(),
-                'modified' => $modified ? Carbon::parse($modified)->format('d.m.Y H:i') : '',
+                'modified' => $modified ? $this->formatAppDateTime($modified, 'd.m.Y H:i') : '',
                 'size' => $item->getSize() ?? 0,
                 'id' => $item->getId(),
             ];
@@ -360,6 +353,46 @@ class CloudshareService implements CloudshareServiceInterface
             : new AppSettings;
     }
 
+    protected function normalizeShareExpiresAt(string $expiresAt): Carbon
+    {
+        $raw = trim($expiresAt);
+
+        if ($raw === '') {
+            throw new InvalidArgumentException('Gültigkeit ist erforderlich.');
+        }
+
+        $timezone = $this->appTimezone();
+        $date = preg_match('/^(\d{4}-\d{2}-\d{2})/', $raw, $matches) === 1
+            ? $matches[1]
+            : Carbon::parse($raw, $timezone)->timezone($timezone)->toDateString();
+
+        $expiration = Carbon::createFromFormat('Y-m-d', $date, $timezone);
+
+        if ($expiration === false) {
+            throw new InvalidArgumentException('Gültigkeit ist ungültig.');
+        }
+
+        $expiration = $expiration->startOfDay();
+
+        if ($expiration->lessThanOrEqualTo(now())) {
+            throw new InvalidArgumentException('Die Gültigkeit muss in der Zukunft liegen.');
+        }
+
+        return $expiration;
+    }
+
+    protected function formatAppDateTime(mixed $value, string $format): string
+    {
+        return Carbon::parse($value)
+            ->timezone($this->appTimezone())
+            ->format($format);
+    }
+
+    protected function appTimezone(): string
+    {
+        return (string) config('app.timezone', 'UTC');
+    }
+
     /**
      * @param  Collection<string, CloudshareShare>  $storedByItemId
      * @param  Carbon|null  $createdAt  Graph-Erstellungszeitpunkt des DriveItems
@@ -386,7 +419,7 @@ class CloudshareService implements CloudshareServiceInterface
 
         $expirationRaw = $perm->getExpirationDateTime();
         $expiration = $expirationRaw
-            ? Carbon::parse($expirationRaw)->format('d.m.Y H:i').' Uhr'
+            ? $this->formatAppDateTime($expirationRaw, 'd.m.Y H:i').' Uhr'
             : null;
 
         $createdAt ??= $this->shareCreatedAt($share);
@@ -401,7 +434,7 @@ class CloudshareService implements CloudshareServiceInterface
             'name' => $share->getName(),
             'id' => $itemId,
             'url' => $this->shareUrlFromPermission($perm),
-            'created_at' => $createdAt?->format('d.m.Y H:i') ?? '',
+            'created_at' => $createdAt ? $this->formatAppDateTime($createdAt, 'd.m.Y H:i') : '',
             'password' => $hasPassword,
             'has_stored_password' => $hasStoredPassword,
             'expiration' => $expiration,
@@ -421,7 +454,7 @@ class CloudshareService implements CloudshareServiceInterface
             }
 
             try {
-                return Carbon::parse($candidate);
+                return Carbon::parse($candidate)->timezone($this->appTimezone());
             } catch (Throwable) {
                 continue;
             }

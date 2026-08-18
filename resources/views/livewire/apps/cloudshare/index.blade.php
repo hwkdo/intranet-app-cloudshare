@@ -111,7 +111,7 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
         $this->validate([
             'newName' => ['required', 'string', 'max:200'],
             'newPassword' => ['nullable', 'string', 'min:8'],
-            'newExpiresAt' => ['required', 'date', 'after:now'],
+            'newExpiresAt' => ['required', 'date', 'after:today'],
             'newGuestUpload' => ['boolean'],
         ], [
             'newExpiresAt.after' => 'Die Gültigkeit muss in der Zukunft liegen.',
@@ -590,8 +590,16 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
             <form wire:submit="createShare" class="space-y-4">
                 <flux:input wire:model="newName" label="Name" required />
                 <flux:input wire:model="newPassword" label="Passwort" type="text" placeholder="Optional, mindestens 8 Zeichen" />
-                <flux:input wire:model="newExpiresAt" label="Gültigkeit" type="datetime-local" required min="{{ now()->format('Y-m-d\TH:i') }}" />
-                <flux:error name="newExpiresAt" />                <flux:checkbox wire:model="newGuestUpload" label="Gast-Upload erlauben" />
+                <flux:input
+                    wire:model="newExpiresAt"
+                    label="Gültigkeit"
+                    type="date"
+                    required
+                    min="{{ now()->addDay()->toDateString() }}"
+                    description="Die Freigabe endet um 00:00 Uhr am gewählten Tag."
+                />
+                <flux:error name="newExpiresAt" />
+                <flux:checkbox wire:model="newGuestUpload" label="Gast-Upload erlauben" />
 
                 <div class="flex justify-end gap-2">
                     <flux:button type="button" variant="ghost" wire:click="$set('showCreateModal', false)">Abbrechen</flux:button>

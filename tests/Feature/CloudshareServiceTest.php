@@ -14,6 +14,7 @@ use Hwkdo\IntranetAppCloudshare\Models\IntranetAppCloudshareSettings;
 use Hwkdo\IntranetAppCloudshare\Services\CloudshareService;
 use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
 use Hwkdo\MsGraphLaravel\Interfaces\MsGraphDelegatedOneDriveFactoryInterface;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
@@ -303,6 +304,77 @@ it('validiert passwortlänge bei createShare', function (): void {
         'name' => 'Demo',
         'password' => 'short',
         'expires_at' => now()->addDay()->toDateTimeString(),
+        'guest_upload' => false,
+    ]);
+})->throws(InvalidArgumentException::class);
+
+it('setzt die gültigkeit auf 00:00 uhr der app-zeitzone', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    $expectedExpiration = Carbon::createFromFormat('Y-m-d', '2030-01-15', config('app.timezone'))
+        ->startOfDay()
+        ->toIso8601String();
+
+    $createdFolder = Mockery::mock();
+    $createdFolder->shouldReceive('getId')->andReturn('expires-folder');
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('makeFolder')->once()->andReturn($createdFolder);
+    $oneDrive->shouldReceive('shareReadOnly')
+        ->once()
+        ->with(Mockery::type('string'), 'expires-folder', null, $expectedExpiration)
+        ->andReturn('https://example.com/ro');
+    $oneDrive->shouldReceive('getDriveItemPermissions')->andReturn([]);
+
+    app(CloudshareService::class)->createShare($user, [
+        'name' => 'Demo',
+        'password' => null,
+        'expires_at' => '2030-01-15 14:30:00',
+        'guest_upload' => false,
+    ]);
+});
+
+it('zeigt graph-ablaufdatum in der app-zeitzone', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    $folder = cloudshareGraphShareFolder(
+        'folder-tz',
+        'Zeitzone',
+        new DateTimeImmutable('2026-08-21 10:00:00'),
+    );
+
+    $link = Mockery::mock();
+    $link->shouldReceive('getWebUrl')->andReturn('https://example.com/share');
+
+    $perm = Mockery::mock();
+    $perm->shouldReceive('getLink')->andReturn($link);
+    $perm->shouldReceive('getExpirationDateTime')
+        ->andReturn(new DateTime('2026-08-20 22:00:00', new DateTimeZone('UTC')));
+    $perm->shouldReceive('getHasPassword')->andReturn(false);
+    $perm->shouldReceive('getRoles')->andReturn(['read']);
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('makeFolder')->once()->andReturn($folder);
+    $oneDrive->shouldReceive('getUserDriveContent')->once()->andReturn([$folder]);
+    $oneDrive->shouldReceive('getDriveItemPermissions')->andReturn(collect([$perm]));
+
+    $shares = app(CloudshareService::class)->listShares($user);
+
+    expect($shares)->toHaveCount(1)
+        ->and($shares[0]['expiration'])->toBe('21.08.2026 00:00 Uhr');
+});
+
+it('lehnt gültigkeit ab wenn 00:00 des tages nicht in der zukunft liegt', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    mockCloudshareOneDrive()->shouldNotReceive('makeFolder');
+
+    app(CloudshareService::class)->createShare($user, [
+        'name' => 'Demo',
+        'expires_at' => now()->toDateString(),
         'guest_upload' => false,
     ]);
 })->throws(InvalidArgumentException::class);
