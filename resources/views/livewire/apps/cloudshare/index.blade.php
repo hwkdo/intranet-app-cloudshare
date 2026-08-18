@@ -3,6 +3,7 @@
 use Flux\Flux;
 use Hwkdo\IntranetAppCloudshare\Contracts\CloudshareServiceInterface;
 use Hwkdo\IntranetAppCloudshare\Data\AppSettings;
+use Hwkdo\IntranetAppCloudshare\Mail\CloudshareSharedMail;
 use Hwkdo\IntranetAppCloudshare\Models\IntranetAppCloudshareSettings;
 use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
 use Illuminate\Support\Facades\Auth;
@@ -47,13 +48,11 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
 
     public string $shareIdForMail = '';
 
-    public string $shareMailSubject = 'Ein Cloud Ordner wurde für Sie freigegeben';
+    public string $shareMailSubject = '';
 
     public string $shareMailEmail = '';
 
     public string $shareMailPreview = '';
-
-    public bool $shareMailSent = false;
 
     public bool $sendPasswordViaBitwarden = false;
 
@@ -302,9 +301,8 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
         }
 
         $this->shareIdForMail = $shareId;
-        $this->shareMailSubject = 'Ein Cloud Ordner wurde für Sie freigegeben';
+        $this->shareMailSubject = CloudshareSharedMail::subjectForShare((string) ($share['name'] ?? ''));
         $this->shareMailEmail = '';
-        $this->shareMailSent = false;
         $this->sendPasswordViaBitwarden = false;
         $this->resetErrorBag(['shareMailEmail', 'shareMailSubject', 'sendPasswordViaBitwarden']);
 
@@ -363,8 +361,9 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
                 $this->shareMailSubject,
                 $this->sendPasswordViaBitwarden,
             );
-            $this->shareMailSent = true;
             $this->shareMailEmail = '';
+            $this->showShareModal = false;
+            $this->sendPasswordViaBitwarden = false;
 
             if ($result['bitwarden_error']) {
                 Flux::toast(variant: 'warning', text: $result['bitwarden_error']);
@@ -834,12 +833,6 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
                         wire:key="mail-preview-{{ md5($shareMailPreview) }}"
                     ></iframe>
                 </div>
-            @endif
-
-            @if ($shareMailSent)
-                <flux:callout variant="success" icon="check-circle">
-                    <flux:callout.text>E-Mail gesendet</flux:callout.text>
-                </flux:callout>
             @endif
 
             <form wire:submit="sendShareMail" class="space-y-4">

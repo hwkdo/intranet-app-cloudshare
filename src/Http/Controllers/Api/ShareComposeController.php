@@ -21,7 +21,7 @@ class ShareComposeController extends Controller
         CloudshareServiceInterface $cloudshare,
     ): JsonResponse {
         $resolved = $this->resolveShare($cloudshare, $request->user(), $share);
-        $subject = CloudshareSharedMail::DEFAULT_SUBJECT;
+        $subject = CloudshareSharedMail::subjectForShare((string) ($resolved['name'] ?? ''));
 
         return response()->json([
             'html' => $cloudshare->previewShareMail($request->user(), $resolved, $subject),

@@ -6,6 +6,7 @@ use App\Models\User;
 use Hwkdo\IntranetAppCloudshare\Contracts\CloudshareServiceInterface;
 use Hwkdo\IntranetAppCloudshare\Data\AppSettings;
 use Hwkdo\IntranetAppCloudshare\Data\UserSettings;
+use Hwkdo\IntranetAppCloudshare\Mail\CloudshareSharedMail;
 use Hwkdo\IntranetAppCloudshare\Models\IntranetAppCloudshareSettings;
 use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
 use Livewire\Livewire;
@@ -488,6 +489,111 @@ it('deaktiviert polling wenn das intervall in den appsettings 0 ist', function (
         ->assertSuccessful()
         ->assertDontSee('Freigaben mit Gast-Upload werden automatisch aktualisiert.')
         ->assertDontSeeHtml('refreshGuestUploads');
+});
+
+it('setzt den mail-betreff mit dem namen der freigabe', function (): void {
+    $user = User::factory()->create([
+        'username' => 'sharemail.subject',
+        'vorname' => 'Share',
+        'nachname' => 'Subject',
+        'email' => 'sharemail.subject@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->andReturn([
+            cloudshareSampleShare([
+                'name' => 'Projekt-X',
+                'id' => 'share-1',
+            ]),
+        ]);
+        $mock->shouldReceive('quota')->andReturn(null);
+        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('previewShareMail')->once()->andReturn('<html></html>');
+    });
+
+    actingAs($user);
+
+    Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->call('openShareModal', 'share-1')
+        ->assertSet('showShareModal', true)
+        ->assertSet('shareMailSubject', 'Der Cloud Ordner Projekt-X wurde für Sie freigegeben');
+});
+
+it('schliesst das teilen-modal nach erfolgreichem mailversand', function (): void {
+    $user = User::factory()->create([
+        'username' => 'sharemail.close',
+        'vorname' => 'Share',
+        'nachname' => 'Close',
+        'email' => 'sharemail.close@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->andReturn([
+            cloudshareSampleShare([
+                'name' => 'Projekt-X',
+                'id' => 'share-1',
+            ]),
+        ]);
+        $mock->shouldReceive('quota')->andReturn(null);
+        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('previewShareMail')->andReturn('<html></html>');
+        $mock->shouldReceive('sendShareMail')
+            ->once()
+            ->andReturn([
+                'bitwarden_sent' => false,
+                'bitwarden_error' => null,
+            ]);
+    });
+
+    actingAs($user);
+
+    Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->call('openShareModal', 'share-1')
+        ->set('shareMailEmail', 'gast@example.com')
+        ->call('sendShareMail')
+        ->assertHasNoErrors()
+        ->assertSet('showShareModal', false);
+});
+
+it('laesst das teilen-modal bei validierungsfehlern geoeffnet', function (): void {
+    $user = User::factory()->create([
+        'username' => 'sharemail.invalid',
+        'vorname' => 'Share',
+        'nachname' => 'Invalid',
+        'email' => 'sharemail.invalid@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->andReturn([
+            cloudshareSampleShare([
+                'name' => 'Projekt-X',
+                'id' => 'share-1',
+            ]),
+        ]);
+        $mock->shouldReceive('quota')->andReturn(null);
+        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('previewShareMail')->andReturn('<html></html>');
+        $mock->shouldReceive('sendShareMail')->never();
+    });
+
+    actingAs($user);
+
+    Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->call('openShareModal', 'share-1')
+        ->set('shareMailEmail', '')
+        ->call('sendShareMail')
+        ->assertHasErrors(['shareMailEmail'])
+        ->assertSet('showShareModal', true);
+});
+
+it('erzeugt den mail-betreff aus dem namen der freigabe', function (): void {
+    expect(CloudshareSharedMail::subjectForShare('Projekt-X'))
+        ->toBe('Der Cloud Ordner Projekt-X wurde für Sie freigegeben')
+        ->and(CloudshareSharedMail::subjectForShare('   '))
+        ->toBe(CloudshareSharedMail::DEFAULT_SUBJECT);
 });
 
 it('fuellt fehlendes polling-intervall in alten appsettings mit default', function (): void {

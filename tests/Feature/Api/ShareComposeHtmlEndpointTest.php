@@ -27,10 +27,14 @@ it('liefert die gerenderte share-mail als html', function (): void {
         ->andReturn($share);
     $mock->shouldReceive('previewShareMail')
         ->once()
+        ->withArgs(function (mixed $user, array $resolvedShare, string $subject) use ($share): bool {
+            return $resolvedShare['id'] === $share['id']
+                && $subject === CloudshareSharedMail::subjectForShare('Projekt-X');
+        })
         ->andReturn($html);
 
     $this->postJson('/api/cloudshare/shares/item-123/compose-html')
         ->assertOk()
         ->assertJsonPath('html', $html)
-        ->assertJsonPath('subject', CloudshareSharedMail::DEFAULT_SUBJECT);
+        ->assertJsonPath('subject', CloudshareSharedMail::subjectForShare('Projekt-X'));
 });
