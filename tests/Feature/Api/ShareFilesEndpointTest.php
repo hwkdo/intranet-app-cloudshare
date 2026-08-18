@@ -106,3 +106,80 @@ it('listet die dateien einer bestehenden freigabe', function (): void {
         ->assertJsonPath('data.0.name', 'angebot.pdf')
         ->assertJsonPath('data.0.size', 128000);
 });
+
+it('liefert 401 wenn dateien ohne bearer token geloescht werden', function (): void {
+    $this->deleteJson('/api/cloudshare/shares/item-123/files/file-1')
+        ->assertUnauthorized();
+});
+
+it('liefert 404 wenn eine datei in einer unbekannten freigabe geloescht wird', function (): void {
+    $user = User::factory()->create();
+    Passport::actingAs($user);
+
+    $mock = mock(CloudshareServiceInterface::class);
+    $mock->shouldReceive('findShare')
+        ->once()
+        ->andReturn(null);
+    $mock->shouldNotReceive('deleteItem');
+
+    $this->deleteJson('/api/cloudshare/shares/item-missing/files/file-1')
+        ->assertNotFound();
+});
+
+it('liefert 404 wenn die datei nicht zur freigabe gehoert', function (): void {
+    $user = User::factory()->create();
+    Passport::actingAs($user);
+
+    $share = cloudshareSampleShare();
+
+    $mock = mock(CloudshareServiceInterface::class);
+    $mock->shouldReceive('findShare')
+        ->once()
+        ->andReturn($share);
+    $mock->shouldReceive('listFiles')
+        ->once()
+        ->andReturn([
+            [
+                'file' => 'angebot.pdf',
+                'href' => 'https://1drv.ms/angebot',
+                'modified' => '18.08.2026 10:00',
+                'size' => 128000,
+                'id' => 'file-1',
+            ],
+        ]);
+    $mock->shouldNotReceive('deleteItem');
+
+    $this->deleteJson('/api/cloudshare/shares/item-123/files/file-other')
+        ->assertNotFound();
+});
+
+it('loescht eine datei aus einer bestehenden freigabe', function (): void {
+    $user = User::factory()->create();
+    Passport::actingAs($user);
+
+    $share = cloudshareSampleShare();
+
+    $mock = mock(CloudshareServiceInterface::class);
+    $mock->shouldReceive('findShare')
+        ->once()
+        ->andReturn($share);
+    $mock->shouldReceive('listFiles')
+        ->once()
+        ->andReturn([
+            [
+                'file' => 'angebot.pdf',
+                'href' => 'https://1drv.ms/angebot',
+                'modified' => '18.08.2026 10:00',
+                'size' => 128000,
+                'id' => 'file-1',
+            ],
+        ]);
+    $mock->shouldReceive('deleteItem')
+        ->once()
+        ->withArgs(fn (mixed $deletedBy, string $itemId): bool => $itemId === 'file-1')
+        ->andReturn(true);
+
+    $this->deleteJson('/api/cloudshare/shares/item-123/files/file-1')
+        ->assertOk()
+        ->assertJsonPath('message', 'Datei wurde gelöscht.');
+});

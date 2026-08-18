@@ -18,6 +18,7 @@ Route::prefix('api/cloudshare')
         Route::post('/shares', [ShareController::class, 'store'])->name('api.cloudshare.shares.store');
         Route::get('/shares/{share}/files', [ShareFileController::class, 'index'])->name('api.cloudshare.shares.files.index');
         Route::post('/shares/{share}/files', [ShareFileController::class, 'store'])->name('api.cloudshare.shares.files.store');
+        Route::delete('/shares/{share}/files/{file}', [ShareFileController::class, 'destroy'])->name('api.cloudshare.shares.files.destroy');
         Route::post('/shares/{share}/compose-html', [ShareComposeController::class, 'store'])->name('api.cloudshare.shares.compose-html');
         Route::post('/shares/{share}/bitwarden-send', [ShareBitwardenSendController::class, 'store'])->name('api.cloudshare.shares.bitwarden-send');
     });

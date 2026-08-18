@@ -60,4 +60,25 @@ class ShareFileController extends Controller
             'file' => $file->getClientOriginalName(),
         ], 201);
     }
+
+    public function destroy(
+        Request $request,
+        string $share,
+        string $file,
+        CloudshareServiceInterface $cloudshare,
+    ): JsonResponse {
+        $resolved = $this->resolveShare($cloudshare, $request->user(), $share);
+        $match = collect($cloudshare->listFiles($request->user(), $resolved['name']))
+            ->first(fn (array $item): bool => (string) $item['id'] === $file);
+
+        if (! is_array($match)) {
+            abort(404, 'Datei nicht gefunden.');
+        }
+
+        $cloudshare->deleteItem($request->user(), (string) $match['id']);
+
+        return response()->json([
+            'message' => 'Datei wurde gelöscht.',
+        ]);
+    }
 }
