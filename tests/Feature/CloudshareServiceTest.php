@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Models\User;
+use DateTimeInterface;
 use Hwkdo\HwkAdminLaravel\HwkAdminService;
 use Hwkdo\IntranetAppCloudshare\Contracts\CloudshareServiceInterface;
 use Hwkdo\IntranetAppCloudshare\Data\AppSettings;
@@ -51,6 +52,22 @@ function cloudshareUser(array $overrides = []): User
     ], $overrides));
 }
 
+function cloudshareGraphShareFolder(string $id, string $name, ?DateTimeInterface $createdAt = null, mixed $fileSystemInfo = null): object
+{
+    $folderFacet = Mockery::mock();
+    $folderFacet->shouldReceive('getChildCount')->andReturn(0);
+
+    $folder = Mockery::mock();
+    $folder->shouldReceive('getFolder')->andReturn($folderFacet);
+    $folder->shouldReceive('getShared')->andReturn((object) []);
+    $folder->shouldReceive('getId')->andReturn($id);
+    $folder->shouldReceive('getName')->andReturn($name);
+    $folder->shouldReceive('getCreatedDateTime')->andReturn($createdAt);
+    $folder->shouldReceive('getFileSystemInfo')->andReturn($fileSystemInfo);
+
+    return $folder;
+}
+
 it('listet freigaben über den oneDrive service', function (): void {
     $user = cloudshareUser();
     actingAs($user);
@@ -88,6 +105,41 @@ it('listet freigaben über den oneDrive service', function (): void {
         ->and($shares[0]['has_stored_password'])->toBeFalse()
         ->and($shares[0]['writeable'])->toBeTrue()
         ->and($shares[0]['file_count'])->toBe(3);
+});
+
+it('sortiert freigaben nach erstellungsdatum absteigend', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    $older = cloudshareGraphShareFolder('folder-old', 'Alt', new DateTimeImmutable('2026-01-01 08:00:00'));
+    $newer = cloudshareGraphShareFolder('folder-new', 'Neu', new DateTimeImmutable('2026-08-18 12:00:00'));
+
+    $fileSystemInfo = Mockery::mock();
+    $fileSystemInfo->shouldReceive('getCreatedDateTime')->andReturn(new DateTimeImmutable('2026-08-17 09:00:00'));
+
+    $fromFileSystemInfo = cloudshareGraphShareFolder('folder-fs', 'Mitte', null, $fileSystemInfo);
+
+    $link = Mockery::mock();
+    $link->shouldReceive('getWebUrl')->andReturn('https://example.com/share');
+
+    $perm = Mockery::mock();
+    $perm->shouldReceive('getLink')->andReturn($link);
+    $perm->shouldReceive('getExpirationDateTime')->andReturn(null);
+    $perm->shouldReceive('getHasPassword')->andReturn(false);
+    $perm->shouldReceive('getRoles')->andReturn(['read']);
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('makeFolder')->once()->andReturn($older);
+    $oneDrive->shouldReceive('getUserDriveContent')->once()->andReturn([$older, $fromFileSystemInfo, $newer]);
+    $oneDrive->shouldReceive('getDriveItemPermissions')->andReturn(collect([$perm]));
+
+    $shares = app(CloudshareService::class)->listShares($user);
+
+    expect($shares)->toHaveCount(3)
+        ->and(array_column($shares, 'id'))->toBe(['folder-new', 'folder-fs', 'folder-old'])
+        ->and($shares[0]['created_at'])->toBe('18.08.2026 12:00')
+        ->and($shares[1]['created_at'])->toBe('17.08.2026 09:00')
+        ->and($shares[2]['created_at'])->toBe('01.01.2026 08:00');
 });
 
 it('erzeugt beim listen keinen neuen graph-link wenn keine url bekannt ist', function (): void {

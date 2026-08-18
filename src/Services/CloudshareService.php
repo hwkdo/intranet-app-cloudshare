@@ -49,14 +49,22 @@ class CloudshareService implements CloudshareServiceInterface
         $result = [];
 
         foreach ($shares as $share) {
-            $shareData = $this->mapShare($share, $upn, $storedByItemId, $oneDrive);
+            $createdAt = $this->shareCreatedAt($share);
+            $shareData = $this->mapShare($share, $upn, $storedByItemId, $oneDrive, $createdAt);
 
             if ($shareData !== null) {
-                $result[] = $shareData;
+                $result[] = [
+                    'share' => $shareData,
+                    'created_at' => $createdAt,
+                ];
             }
         }
 
-        return $result;
+        return collect($result)
+            ->sortByDesc(fn (array $item): int => $item['created_at']?->getTimestamp() ?? 0)
+            ->pluck('share')
+            ->values()
+            ->all();
     }
 
     public function createShare(Authenticatable $user, array $data): array
@@ -354,6 +362,7 @@ class CloudshareService implements CloudshareServiceInterface
 
     /**
      * @param  Collection<string, CloudshareShare>  $storedByItemId
+     * @param  Carbon|null  $createdAt  Graph-Erstellungszeitpunkt des DriveItems
      * @return array{
      *     name: string,
      *     id: string,
@@ -366,7 +375,7 @@ class CloudshareService implements CloudshareServiceInterface
      *     file_count: int
      * }|null
      */
-    protected function mapShare(mixed $share, string $upn, Collection $storedByItemId, MsGraphOneDriveServiceInterface $oneDrive): ?array
+    protected function mapShare(mixed $share, string $upn, Collection $storedByItemId, MsGraphOneDriveServiceInterface $oneDrive, ?Carbon $createdAt = null): ?array
     {
         $perms = $oneDrive->getDriveItemPermissions($upn, $share->getId(), 'anonymous');
         $perm = collect($perms)->first();
@@ -380,7 +389,7 @@ class CloudshareService implements CloudshareServiceInterface
             ? Carbon::parse($expirationRaw)->format('d.m.Y H:i').' Uhr'
             : null;
 
-        $created = $share->getFileSystemInfo()?->getCreatedDateTime();
+        $createdAt ??= $this->shareCreatedAt($share);
         $roles = $perm->getRoles() ?? [];
         $itemId = (string) $share->getId();
         $hasPassword = (bool) $perm->getHasPassword();
@@ -392,13 +401,65 @@ class CloudshareService implements CloudshareServiceInterface
             'name' => $share->getName(),
             'id' => $itemId,
             'url' => $this->shareUrlFromPermission($perm),
-            'created_at' => $created ? Carbon::parse($created)->format('d.m.Y H:i') : '',
+            'created_at' => $createdAt?->format('d.m.Y H:i') ?? '',
             'password' => $hasPassword,
             'has_stored_password' => $hasStoredPassword,
             'expiration' => $expiration,
             'writeable' => in_array('write', $roles, true),
             'file_count' => $this->folderChildCount($share),
         ];
+    }
+
+    /**
+     * DriveItem.createdDateTime, Fallback fileSystemInfo.createdDateTime.
+     */
+    protected function shareCreatedAt(mixed $share): ?Carbon
+    {
+        foreach ($this->shareCreatedAtCandidates($share) as $candidate) {
+            if ($candidate === null) {
+                continue;
+            }
+
+            try {
+                return Carbon::parse($candidate);
+            } catch (Throwable) {
+                continue;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return list<mixed>
+     */
+    protected function shareCreatedAtCandidates(mixed $share): array
+    {
+        if (! is_object($share)) {
+            return [];
+        }
+
+        $candidates = [];
+
+        try {
+            if (method_exists($share, 'getCreatedDateTime')) {
+                $candidates[] = $share->getCreatedDateTime();
+            }
+        } catch (Throwable) {
+        }
+
+        try {
+            if (method_exists($share, 'getFileSystemInfo')) {
+                $info = $share->getFileSystemInfo();
+
+                if (is_object($info) && method_exists($info, 'getCreatedDateTime')) {
+                    $candidates[] = $info->getCreatedDateTime();
+                }
+            }
+        } catch (Throwable) {
+        }
+
+        return $candidates;
     }
 
     protected function folderChildCount(mixed $share): int
