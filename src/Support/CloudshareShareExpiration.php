@@ -30,6 +30,20 @@ final class CloudshareShareExpiration
     /**
      * @param  array{expiration?: ?string}  $share
      */
+    public static function isDueForAutoDelete(array $share, int $afterDays, ?Carbon $now = null): bool
+    {
+        $days = self::daysUntilExpiry($share['expiration'] ?? null, $now);
+
+        if ($days === null || $days >= 0) {
+            return false;
+        }
+
+        return abs($days) >= max(0, $afterDays);
+    }
+
+    /**
+     * @param  array{expiration?: ?string}  $share
+     */
     public static function isExpiringSoon(array $share, int $withinDays, ?Carbon $now = null): bool
     {
         $days = self::daysUntilExpiry($share['expiration'] ?? null, $now);

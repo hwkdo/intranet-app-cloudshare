@@ -24,4 +24,13 @@ class IntranetAppCloudshareSettings extends Model
     {
         return self::query()->orderByDesc('version')->first();
     }
+
+    public static function resolved(): AppSettings
+    {
+        $settings = self::current()?->settings;
+
+        return $settings instanceof AppSettings
+            ? $settings
+            : new AppSettings;
+    }
 }

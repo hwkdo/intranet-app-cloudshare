@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Models\User;
 use Hwkdo\IntranetAppBase\Services\DashboardWidgetRegistry;
 use Hwkdo\IntranetAppCloudshare\Contracts\CloudshareServiceInterface;
+use Hwkdo\IntranetAppCloudshare\Data\AppSettings;
 use Hwkdo\IntranetAppCloudshare\Data\UserSettings;
 use Hwkdo\IntranetAppCloudshare\Support\CloudshareShareExpiration;
 use Illuminate\Support\Carbon;
@@ -67,6 +68,57 @@ it('erkennt bereits abgelaufene freigaben', function (): void {
         ], 7))->toBeTrue()
         ->and(CloudshareShareExpiration::remainingDaysLabel(-1))->toBe('seit 1 Tag abgelaufen')
         ->and(CloudshareShareExpiration::remainingDaysLabel(-3))->toBe('seit 3 Tagen abgelaufen');
+});
+
+it('erkennt freigaben die nach karenzzeit automatisch geloescht werden sollen', function (): void {
+    expect(CloudshareShareExpiration::isDueForAutoDelete([
+        'expiration' => '17.08.2026 23:59 Uhr',
+    ], 0))->toBeTrue()
+        ->and(CloudshareShareExpiration::isDueForAutoDelete([
+            'expiration' => '11.08.2026 23:59 Uhr',
+        ], 7))->toBeTrue()
+        ->and(CloudshareShareExpiration::isDueForAutoDelete([
+            'expiration' => '12.08.2026 23:59 Uhr',
+        ], 7))->toBeFalse()
+        ->and(CloudshareShareExpiration::isDueForAutoDelete([
+            'expiration' => '17.08.2026 23:59 Uhr',
+        ], 7))->toBeFalse()
+        ->and(CloudshareShareExpiration::isDueForAutoDelete([
+            'expiration' => '18.08.2026 23:59 Uhr',
+        ], 0))->toBeFalse()
+        ->and(CloudshareShareExpiration::isDueForAutoDelete([
+            'expiration' => null,
+        ], 0))->toBeFalse();
+});
+
+it('fuellt fehlende auto-delete-felder in alten appsettings mit defaults', function (): void {
+    $settings = AppSettings::from([
+        'hinweisText' => '',
+        'defaultBwSendMaxAccessCount' => 1,
+        'defaultBwSendDeleteInDays' => 7,
+    ]);
+
+    expect($settings->autoDeleteExpiredEnabled)->toBeFalse()
+        ->and($settings->autoDeleteExpiredAfterDays)->toBe(7)
+        ->and($settings->autoDeleteCheckEveryHours)->toBe(24)
+        ->and($settings->normalizedAutoDeleteAfterDays())->toBe(7)
+        ->and($settings->normalizedAutoDeleteCheckEveryHours())->toBe(24);
+});
+
+it('begrenzt die auto-delete-intervalle auf den erlaubten bereich', function (): void {
+    $tooLow = new AppSettings(
+        autoDeleteExpiredAfterDays: -3,
+        autoDeleteCheckEveryHours: 0,
+    );
+    $tooHigh = new AppSettings(
+        autoDeleteExpiredAfterDays: 900,
+        autoDeleteCheckEveryHours: 200,
+    );
+
+    expect($tooLow->normalizedAutoDeleteAfterDays())->toBe(0)
+        ->and($tooLow->normalizedAutoDeleteCheckEveryHours())->toBe(1)
+        ->and($tooHigh->normalizedAutoDeleteAfterDays())->toBe(365)
+        ->and($tooHigh->normalizedAutoDeleteCheckEveryHours())->toBe(168);
 });
 
 it('hebt bald ablaufende und abgelaufene freigaben in der liste hervor', function (): void {

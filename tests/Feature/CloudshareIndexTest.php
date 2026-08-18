@@ -753,7 +753,10 @@ it('fuellt fehlendes polling-intervall in alten appsettings mit default', functi
         'defaultBwSendDeleteInDays' => 7,
     ]);
 
-    expect($settings->guestUploadPollSeconds)->toBe(30);
+    expect($settings->guestUploadPollSeconds)->toBe(30)
+        ->and($settings->autoDeleteExpiredEnabled)->toBeFalse()
+        ->and($settings->autoDeleteExpiredAfterDays)->toBe(7)
+        ->and($settings->autoDeleteCheckEveryHours)->toBe(24);
 });
 
 it('zeigt in den benutzereinstellungen keinen anzeigemodus', function (): void {

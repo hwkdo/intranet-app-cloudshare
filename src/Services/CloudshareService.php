@@ -11,11 +11,14 @@ use Hwkdo\IntranetAppCloudshare\Mail\CloudsharePasswordSendMail;
 use Hwkdo\IntranetAppCloudshare\Mail\CloudshareSharedMail;
 use Hwkdo\IntranetAppCloudshare\Models\CloudshareShare;
 use Hwkdo\IntranetAppCloudshare\Models\IntranetAppCloudshareSettings;
+use Hwkdo\IntranetAppCloudshare\Support\CloudshareShareExpiration;
+use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
 use Hwkdo\MsGraphLaravel\Interfaces\MsGraphDelegatedOneDriveFactoryInterface;
 use Hwkdo\MsGraphLaravel\Interfaces\MsGraphOneDriveServiceInterface;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use InvalidArgumentException;
 use RuntimeException;
@@ -246,6 +249,68 @@ class CloudshareService implements CloudshareServiceInterface
         return $result;
     }
 
+    /**
+     * @return array{deleted: int, skipped_users: int, failed: int}
+     */
+    public function purgeExpiredShares(?int $afterDays = null): array
+    {
+        $afterDays ??= $this->appSettings()->normalizedAutoDeleteAfterDays();
+        $deleted = 0;
+        $skippedUsers = 0;
+        $failed = 0;
+
+        foreach ($this->usersForExpiredSharePurge() as $user) {
+            if (! $user instanceof Authenticatable) {
+                continue;
+            }
+
+            try {
+                $shares = $this->listShares($user);
+            } catch (MicrosoftDelegatedTokenMissingException) {
+                $skippedUsers++;
+
+                continue;
+            } catch (Throwable $e) {
+                $skippedUsers++;
+                Log::warning('Cloud Share: Freigaben für automatisches Löschen konnten nicht geladen werden.', [
+                    'user_id' => $user->getAuthIdentifier(),
+                    'exception' => $e->getMessage(),
+                ]);
+
+                continue;
+            }
+
+            foreach ($shares as $share) {
+                if (! CloudshareShareExpiration::isDueForAutoDelete($share, $afterDays)) {
+                    continue;
+                }
+
+                try {
+                    $this->deleteItem($user, (string) $share['id']);
+                    $deleted++;
+                    Log::info('Cloud Share: Abgelaufene Freigabe automatisch gelöscht.', [
+                        'user_id' => $user->getAuthIdentifier(),
+                        'share_id' => $share['id'] ?? null,
+                        'share_name' => $share['name'] ?? null,
+                    ]);
+                } catch (Throwable $e) {
+                    $failed++;
+                    Log::warning('Cloud Share: Automatisches Löschen einer Freigabe ist fehlgeschlagen.', [
+                        'user_id' => $user->getAuthIdentifier(),
+                        'share_id' => $share['id'] ?? null,
+                        'exception' => $e->getMessage(),
+                    ]);
+                }
+            }
+        }
+
+        return [
+            'deleted' => $deleted,
+            'skipped_users' => $skippedUsers,
+            'failed' => $failed,
+        ];
+    }
+
     public function quota(Authenticatable $user): ?array
     {
         $upn = $this->upn($user);
@@ -398,6 +463,31 @@ class CloudshareService implements CloudshareServiceInterface
         return $settings instanceof AppSettings
             ? $settings
             : new AppSettings;
+    }
+
+    /**
+     * @return Collection<int, mixed>
+     */
+    protected function usersForExpiredSharePurge(): Collection
+    {
+        $userClass = config('intranet-app-cloudshare.user_model');
+
+        if (! is_string($userClass) || ! class_exists($userClass)) {
+            return collect();
+        }
+
+        $query = $userClass::query();
+
+        if (method_exists($userClass, 'scopePermission')) {
+            $query->permission('see-app-cloudshare');
+        } else {
+            $query->whereIn(
+                'id',
+                CloudshareShare::query()->distinct()->pluck('user_id'),
+            );
+        }
+
+        return $query->get();
     }
 
     protected function applyShareExpiration(

@@ -79,6 +79,11 @@ interface CloudshareServiceInterface
     public function deleteItem(Authenticatable $user, string $itemId): mixed;
 
     /**
+     * @return array{deleted: int, skipped_users: int, failed: int}
+     */
+    public function purgeExpiredShares(?int $afterDays = null): array;
+
+    /**
      * @return array{quota_free: int|float|null, quota_used: int|float|null, quota_total: int|float|null, quota_relative: float}|null
      */
     public function quota(Authenticatable $user): ?array;

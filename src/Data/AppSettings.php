@@ -21,5 +21,24 @@ class AppSettings extends BaseAppSettings
 
         #[Description('Aktualisierungsintervall für Freigaben mit Gast-Upload in Sekunden (3–60). 0 deaktiviert die automatische Aktualisierung.')]
         public int $guestUploadPollSeconds = 30,
+
+        #[Description('Automatisch Löschen aktivieren')]
+        public bool $autoDeleteExpiredEnabled = false,
+
+        #[Description('Automatisch Löschen nach X Tagen (0 = sobald die Freigabe abgelaufen ist)')]
+        public int $autoDeleteExpiredAfterDays = 30,
+
+        #[Description('Prüfung Automatische Löschung alle X Stunden (1–168)')]
+        public int $autoDeleteCheckEveryHours = 24,
     ) {}
+
+    public function normalizedAutoDeleteAfterDays(): int
+    {
+        return min(max($this->autoDeleteExpiredAfterDays, 0), 365);
+    }
+
+    public function normalizedAutoDeleteCheckEveryHours(): int
+    {
+        return min(max($this->autoDeleteCheckEveryHours, 1), 168);
+    }
 }

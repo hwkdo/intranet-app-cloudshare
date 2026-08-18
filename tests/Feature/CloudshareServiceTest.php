@@ -792,3 +792,63 @@ it('wirft wenn die freigabe zum verlaengern nicht gefunden wird', function (): v
 
     app(CloudshareService::class)->extendShareExpiration($user, 'folder-missing', now()->addDay()->toDateString());
 })->throws(InvalidArgumentException::class);
+
+it('loescht nur freigaben die laenger als die karenzzeit abgelaufen sind', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-08-18 12:00:00', config('app.timezone')));
+
+    $user = cloudshareUser();
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $due = cloudshareGraphShareFolder('folder-old', 'Alt', new DateTimeImmutable('2026-08-01 08:00:00'));
+    $recentlyExpired = cloudshareGraphShareFolder('folder-recent', 'Gestern', new DateTimeImmutable('2026-08-17 08:00:00'));
+    $active = cloudshareGraphShareFolder('folder-active', 'Aktiv', new DateTimeImmutable('2026-08-10 08:00:00'));
+
+    $drive = Mockery::mock();
+    $drive->shouldReceive('getId')->andReturn('drive-1');
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('makeFolder')->once()->andReturn($due);
+    $oneDrive->shouldReceive('getUserDriveContent')->once()->andReturn([$due, $recentlyExpired, $active]);
+    $oneDrive->shouldReceive('getDriveItemPermissions')
+        ->times(3)
+        ->andReturnUsing(function (string $upn, string $itemId) {
+            $expiration = match ($itemId) {
+                'folder-old' => new DateTimeImmutable('2026-08-01 00:00:00'),
+                'folder-recent' => new DateTimeImmutable('2026-08-17 23:59:00'),
+                default => new DateTimeImmutable('2026-12-31 23:59:00'),
+            };
+
+            return collect([cloudshareAnonymousPermission('perm-'.$itemId, expiration: $expiration)]);
+        });
+    $oneDrive->shouldReceive('getUserDrive')->once()->andReturn($drive);
+    $oneDrive->shouldReceive('deleteItemById')->once()->with('drive-1', 'folder-old')->andReturn(true);
+
+    try {
+        $result = app(CloudshareService::class)->purgeExpiredShares(7);
+
+        expect($result)->toBe([
+            'deleted' => 1,
+            'skipped_users' => 0,
+            'failed' => 0,
+        ]);
+    } finally {
+        Carbon::setTestNow();
+    }
+});
+
+it('ueberspringt benutzer ohne microsoft token beim automatischen loeschen', function (): void {
+    $user = cloudshareUser();
+    $user->givePermissionTo('see-app-cloudshare');
+
+    mock(MsGraphDelegatedOneDriveFactoryInterface::class)
+        ->shouldReceive('forUser')
+        ->andThrow(MicrosoftDelegatedTokenMissingException::missingRefreshToken());
+
+    $result = app(CloudshareService::class)->purgeExpiredShares(7);
+
+    expect($result)->toBe([
+        'deleted' => 0,
+        'skipped_users' => 1,
+        'failed' => 0,
+    ]);
+});
