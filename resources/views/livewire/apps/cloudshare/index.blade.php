@@ -34,6 +34,14 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
 
     public bool $showShareModal = false;
 
+    public bool $showExtendModal = false;
+
+    public string $extendShareId = '';
+
+    public string $extendShareName = '';
+
+    public string $extendExpiresAt = '';
+
     public string $newName = '';
 
     public string $newPassword = '';
@@ -114,6 +122,48 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
     {
         $this->resetCreateForm();
         $this->showCreateModal = true;
+    }
+
+    public function openExtendModal(string $shareId): void
+    {
+        $share = collect($this->shares)->firstWhere('id', $shareId);
+
+        if (! is_array($share) || ! $this->shareCanExtendExpiration($share)) {
+            return;
+        }
+
+        $this->extendShareId = $shareId;
+        $this->extendShareName = (string) ($share['name'] ?? '');
+        $this->extendExpiresAt = now()
+            ->addDays(CloudshareShareExpiration::expiringSoonDaysFor(Auth::user()))
+            ->toDateString();
+        $this->resetErrorBag(['extendExpiresAt', 'extendShareId']);
+        $this->showExtendModal = true;
+    }
+
+    public function extendShareExpiration(CloudshareServiceInterface $cloudshare): void
+    {
+        $this->validate([
+            'extendShareId' => ['required', 'string'],
+            'extendExpiresAt' => ['required', 'date', 'after:today'],
+        ], [
+            'extendExpiresAt.after' => 'Die Gültigkeit muss in der Zukunft liegen.',
+        ], [
+            'extendExpiresAt' => 'Gültigkeit',
+        ]);
+
+        try {
+            $cloudshare->extendShareExpiration(Auth::user(), $this->extendShareId, $this->extendExpiresAt);
+            $this->showExtendModal = false;
+            $this->resetExtendForm();
+            $this->refreshData($cloudshare);
+            Flux::toast(variant: 'success', text: 'Gültigkeit wurde verlängert.');
+        } catch (MicrosoftDelegatedTokenMissingException $e) {
+            $this->showExtendModal = false;
+            $this->markMicrosoftLoginRequired($e);
+        } catch (\Throwable $e) {
+            $this->addError('extendExpiresAt', $e->getMessage());
+        }
     }
 
     public function createShare(CloudshareServiceInterface $cloudshare): void
@@ -596,6 +646,38 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
         );
     }
 
+    /**
+     * @param  array{expiration?: ?string}  $share
+     */
+    public function shareIsExpired(array $share): bool
+    {
+        return CloudshareShareExpiration::isExpired($share);
+    }
+
+    /**
+     * @param  array{expiration?: ?string}  $share
+     */
+    public function shareCanExtendExpiration(array $share): bool
+    {
+        return $this->shareIsExpired($share) || $this->shareIsExpiringSoon($share);
+    }
+
+    /**
+     * @param  array{expiration?: ?string}  $share
+     */
+    public function shareExpirationHighlight(array $share): ?string
+    {
+        if ($this->shareIsExpired($share)) {
+            return 'expired';
+        }
+
+        if ($this->shareIsExpiringSoon($share)) {
+            return 'soon';
+        }
+
+        return null;
+    }
+
     protected function appSettings(): AppSettings
     {
         $settings = IntranetAppCloudshareSettings::current()?->settings;
@@ -612,6 +694,14 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
         $this->newExpiresAt = '';
         $this->newGuestUpload = false;
         $this->resetErrorBag(['newName', 'newPassword', 'newExpiresAt', 'newGuestUpload']);
+    }
+
+    protected function resetExtendForm(): void
+    {
+        $this->extendShareId = '';
+        $this->extendShareName = '';
+        $this->extendExpiresAt = '';
+        $this->resetErrorBag(['extendExpiresAt', 'extendShareId']);
     }
 };
 ?>
@@ -712,7 +802,7 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                 </flux:callout>
             @endif
 
-            <div wire:loading.flex wire:target="refreshData,createShare,uploadToShare,deleteItem" class="hidden items-center gap-2 text-sm text-zinc-500">
+            <div wire:loading.flex wire:target="refreshData,createShare,uploadToShare,deleteItem,extendShareExpiration" class="hidden items-center gap-2 text-sm text-zinc-500">
                 <flux:icon.arrow-path class="size-4 animate-spin" />
                 Daten werden von Microsoft OneDrive geladen …
             </div>
@@ -743,8 +833,9 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                         wire:key="share-{{ $share['id'] }}"
                         @class([
                             'space-y-4',
-                            'ring-2 ring-blue-500 bg-blue-50! dark:bg-blue-900! dark:ring-sky-400' => $this->shareHasUpdatesSinceOpen($share['id']),
-                            'ring-2 ring-amber-500 bg-amber-50! dark:bg-amber-950/40 dark:ring-amber-400' => $this->shareIsExpiringSoon($share) && ! $this->shareHasUpdatesSinceOpen($share['id']),
+                            'ring-2 ring-red-500 bg-red-50! dark:bg-red-950/40 dark:ring-red-400' => $this->shareIsExpired($share),
+                            'ring-2 ring-blue-500 bg-blue-50! dark:bg-blue-900! dark:ring-sky-400' => $this->shareHasUpdatesSinceOpen($share['id']) && ! $this->shareIsExpired($share),
+                            'ring-2 ring-amber-500 bg-amber-50! dark:bg-amber-950/40 dark:ring-amber-400' => $this->shareIsExpiringSoon($share) && ! $this->shareIsExpired($share) && ! $this->shareHasUpdatesSinceOpen($share['id']),
                         ])
                     >
                         <div class="flex flex-wrap items-start justify-between gap-3">
@@ -781,6 +872,16 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                                 <flux:button size="sm" variant="ghost" icon="envelope" wire:click="openShareModal({{ \Illuminate\Support\Js::from($share['id']) }})">
                                     Teilen
                                 </flux:button>
+                                @if ($this->shareCanExtendExpiration($share))
+                                    <flux:button
+                                        size="sm"
+                                        variant="ghost"
+                                        icon="calendar-days"
+                                        wire:click="openExtendModal({{ \Illuminate\Support\Js::from($share['id']) }})"
+                                    >
+                                        Gültigkeit verlängern
+                                    </flux:button>
+                                @endif
                                 <flux:button
                                     size="sm"
                                     variant="danger"
@@ -794,12 +895,14 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                         </div>
 
                         <div class="space-y-2">
-                            @if ($this->shareHasUpdatesSinceOpen($share['id']) || $this->shareIsExpiringSoon($share))
+                            @if ($this->shareHasUpdatesSinceOpen($share['id']) || $this->shareIsExpired($share) || $this->shareIsExpiringSoon($share))
                                 <div class="flex flex-wrap gap-2">
                                     @if ($this->shareHasUpdatesSinceOpen($share['id']))
                                         <flux:badge color="lime">Aktualisiert</flux:badge>
                                     @endif
-                                    @if ($this->shareIsExpiringSoon($share))
+                                    @if ($this->shareIsExpired($share))
+                                        <flux:badge color="red">Abgelaufen</flux:badge>
+                                    @elseif ($this->shareIsExpiringSoon($share))
                                         <flux:badge color="amber">Läuft bald ab</flux:badge>
                                     @endif
                                 </div>
@@ -807,16 +910,17 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
 
                             <dl class="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-700 dark:border-zinc-700">
                                 @foreach ([
-                                    ['label' => 'Passwortschutz', 'value' => $this->sharePasswordProtectionLabel($share), 'highlight' => false],
-                                    ['label' => 'Gültig bis', 'value' => $this->shareExpirationLabel($share), 'highlight' => $this->shareIsExpiringSoon($share)],
-                                    ['label' => 'Gast-Upload', 'value' => $this->shareGuestUploadLabel($share), 'highlight' => false],
+                                    ['label' => 'Passwortschutz', 'value' => $this->sharePasswordProtectionLabel($share), 'highlight' => null],
+                                    ['label' => 'Gültig bis', 'value' => $this->shareExpirationLabel($share), 'highlight' => $this->shareExpirationHighlight($share)],
+                                    ['label' => 'Gast-Upload', 'value' => $this->shareGuestUploadLabel($share), 'highlight' => null],
                                 ] as $property)
                                     <div class="flex flex-col gap-0.5 px-3 py-2 sm:flex-row sm:items-baseline sm:gap-4">
                                         <dt class="w-40 shrink-0 text-sm font-medium text-zinc-500 dark:text-zinc-400">{{ $property['label'] }}</dt>
                                         <dd @class([
                                             'text-sm',
-                                            'font-medium text-amber-700 dark:text-amber-300' => $property['highlight'],
-                                            'text-zinc-800 dark:text-zinc-200' => ! $property['highlight'],
+                                            'font-medium text-red-700 dark:text-red-300' => $property['highlight'] === 'expired',
+                                            'font-medium text-amber-700 dark:text-amber-300' => $property['highlight'] === 'soon',
+                                            'text-zinc-800 dark:text-zinc-200' => $property['highlight'] === null,
                                         ])>{{ $property['value'] }}</dd>
                                     </div>
                                 @endforeach
@@ -897,6 +1001,32 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                 <div class="flex justify-end gap-2">
                     <flux:button type="button" variant="ghost" wire:click="$set('showCreateModal', false)">Abbrechen</flux:button>
                     <flux:button type="submit" variant="primary">Absenden</flux:button>
+                </div>
+            </form>
+        </flux:modal>
+
+        <flux:modal wire:model="showExtendModal" class="md:w-[32rem] space-y-6">
+            <div>
+                <flux:heading size="lg">Gültigkeit verlängern</flux:heading>
+                <flux:text class="mt-1">
+                    Neues Ablaufdatum für die Freigabe „{{ $extendShareName }}“ setzen.
+                </flux:text>
+            </div>
+
+            <form wire:submit="extendShareExpiration" class="space-y-4">
+                <flux:input
+                    wire:model="extendExpiresAt"
+                    label="Gültigkeit"
+                    type="date"
+                    required
+                    min="{{ now()->addDay()->toDateString() }}"
+                    description="Die Freigabe endet um 00:00 Uhr am gewählten Tag."
+                />
+                <flux:error name="extendExpiresAt" />
+
+                <div class="flex justify-end gap-2">
+                    <flux:button type="button" variant="ghost" wire:click="$set('showExtendModal', false)">Abbrechen</flux:button>
+                    <flux:button type="submit" variant="primary">Gültigkeit setzen</flux:button>
                 </div>
             </form>
         </flux:modal>

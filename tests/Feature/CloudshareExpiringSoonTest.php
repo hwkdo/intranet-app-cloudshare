@@ -49,7 +49,27 @@ it('erkennt freigaben innerhalb der frist als bald ablaufend', function (): void
         ], 7))->toBeFalse();
 });
 
-it('hebt bald ablaufende freigaben in der liste hervor', function (): void {
+it('erkennt bereits abgelaufene freigaben', function (): void {
+    expect(CloudshareShareExpiration::isExpired([
+        'expiration' => '17.08.2026 23:59 Uhr',
+    ]))->toBeTrue()
+        ->and(CloudshareShareExpiration::isExpired([
+            'expiration' => '18.08.2026 23:59 Uhr',
+        ]))->toBeFalse()
+        ->and(CloudshareShareExpiration::isExpired([
+            'expiration' => '25.08.2026 23:59 Uhr',
+        ]))->toBeFalse()
+        ->and(CloudshareShareExpiration::isExpired([
+            'expiration' => null,
+        ]))->toBeFalse()
+        ->and(CloudshareShareExpiration::needsExpirationAttention([
+            'expiration' => '17.08.2026 23:59 Uhr',
+        ], 7))->toBeTrue()
+        ->and(CloudshareShareExpiration::remainingDaysLabel(-1))->toBe('seit 1 Tag abgelaufen')
+        ->and(CloudshareShareExpiration::remainingDaysLabel(-3))->toBe('seit 3 Tagen abgelaufen');
+});
+
+it('hebt bald ablaufende und abgelaufene freigaben in der liste hervor', function (): void {
     $user = User::factory()->create([
         'username' => 'expire.list',
         'vorname' => 'Expire',
@@ -66,6 +86,11 @@ it('hebt bald ablaufende freigaben in der liste hervor', function (): void {
                 'expiration' => '25.08.2026 23:59 Uhr',
             ]),
             cloudshareSampleShare([
+                'name' => 'Alt-Ordner',
+                'id' => 'share-expired',
+                'expiration' => '17.08.2026 23:59 Uhr',
+            ]),
+            cloudshareSampleShare([
                 'name' => 'Spaeter-Ablauf',
                 'id' => 'share-later',
                 'expiration' => '31.12.2026 23:59 Uhr',
@@ -80,17 +105,26 @@ it('hebt bald ablaufende freigaben in der liste hervor', function (): void {
     $component = Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
         ->assertSuccessful()
         ->assertSee('Bald-Ablauf')
+        ->assertSee('Alt-Ordner')
         ->assertSee('Spaeter-Ablauf')
-        ->assertSee('Läuft bald ab');
+        ->assertSee('Läuft bald ab')
+        ->assertSee('Abgelaufen')
+        ->assertSee('Gültigkeit verlängern');
 
     $instance = $component->instance();
 
     expect($instance->shareIsExpiringSoon([
         'expiration' => '25.08.2026 23:59 Uhr',
     ]))->toBeTrue()
-        ->and($instance->shareIsExpiringSoon([
+        ->and($instance->shareIsExpired([
+            'expiration' => '17.08.2026 23:59 Uhr',
+        ]))->toBeTrue()
+        ->and($instance->shareCanExtendExpiration([
             'expiration' => '31.12.2026 23:59 Uhr',
-        ]))->toBeFalse();
+        ]))->toBeFalse()
+        ->and($instance->shareCanExtendExpiration([
+            'expiration' => '17.08.2026 23:59 Uhr',
+        ]))->toBeTrue();
 });
 
 it('beruecksichtigt das user-setting fuer die ablauf-frist', function (): void {
@@ -131,7 +165,7 @@ it('registriert das widget bald ablaufende freigaben am dashboard', function ():
     expect($keys)->toContain('cloudshare.ablaufende-freigaben');
 });
 
-it('zeigt im widget nur bald ablaufende freigaben', function (): void {
+it('zeigt im widget bald ablaufende und abgelaufene freigaben', function (): void {
     $user = User::factory()->create([
         'username' => 'expire.widget',
         'vorname' => 'Expire',
@@ -148,6 +182,11 @@ it('zeigt im widget nur bald ablaufende freigaben', function (): void {
                 'expiration' => '20.08.2026 23:59 Uhr',
             ]),
             cloudshareSampleShare([
+                'name' => 'Alt-Ordner',
+                'id' => 'share-expired',
+                'expiration' => '17.08.2026 23:59 Uhr',
+            ]),
+            cloudshareSampleShare([
                 'name' => 'Spaeter-Ablauf',
                 'id' => 'share-later',
                 'expiration' => '31.12.2026 23:59 Uhr',
@@ -159,8 +198,154 @@ it('zeigt im widget nur bald ablaufende freigaben', function (): void {
 
     Livewire::test('intranet-app-cloudshare::apps.cloudshare.widgets.ablaufende-freigaben')
         ->assertSuccessful()
-        ->assertSee('Bald ablaufende Freigaben')
+        ->assertSee('Ablaufende Freigaben')
         ->assertSee('Bald-Ablauf')
+        ->assertSee('Alt-Ordner')
         ->assertSee('Gültig bis 20.08.2026 23:59 Uhr')
+        ->assertSee('seit 1 Tag abgelaufen')
+        ->assertSee('Gültigkeit verlängern')
         ->assertDontSee('Spaeter-Ablauf');
+});
+
+it('verlaengert die gueltigkeit einer abgelaufenen freigabe in der liste', function (): void {
+    $user = User::factory()->create([
+        'username' => 'expire.extend',
+        'vorname' => 'Expire',
+        'nachname' => 'Extend',
+        'email' => 'expire.extend@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->andReturn([
+            cloudshareSampleShare([
+                'name' => 'Alt-Ordner',
+                'id' => 'share-expired',
+                'expiration' => '17.08.2026 23:59 Uhr',
+            ]),
+        ]);
+        $mock->shouldReceive('quota')->andReturn(null);
+        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('extendShareExpiration')
+            ->once()
+            ->withArgs(function (mixed $authUser, string $shareId, string $expiresAt): bool {
+                return $shareId === 'share-expired' && $expiresAt === '2026-08-25';
+            })
+            ->andReturn(cloudshareSampleShare([
+                'name' => 'Alt-Ordner',
+                'id' => 'share-expired',
+                'expiration' => '25.08.2026 00:00 Uhr',
+            ]));
+    });
+
+    actingAs($user);
+
+    Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->call('openExtendModal', 'share-expired')
+        ->assertSet('showExtendModal', true)
+        ->assertSet('extendShareName', 'Alt-Ordner')
+        ->set('extendExpiresAt', '2026-08-25')
+        ->call('extendShareExpiration')
+        ->assertHasNoErrors()
+        ->assertSet('showExtendModal', false);
+});
+
+it('lehnt verlaengerung auf heute im formular ab', function (): void {
+    $user = User::factory()->create([
+        'username' => 'expire.extend.today',
+        'vorname' => 'Expire',
+        'nachname' => 'Today',
+        'email' => 'expire.extend.today@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->andReturn([
+            cloudshareSampleShare([
+                'name' => 'Bald-Ablauf',
+                'id' => 'share-soon',
+                'expiration' => '20.08.2026 23:59 Uhr',
+            ]),
+        ]);
+        $mock->shouldReceive('quota')->andReturn(null);
+        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('extendShareExpiration')->never();
+    });
+
+    actingAs($user);
+
+    Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->call('openExtendModal', 'share-soon')
+        ->set('extendExpiresAt', '2026-08-18')
+        ->call('extendShareExpiration')
+        ->assertHasErrors(['extendExpiresAt'])
+        ->assertSet('showExtendModal', true);
+});
+
+it('oeffnet das verlaengern-modal nicht fuer spaeter ablaufende freigaben', function (): void {
+    $user = User::factory()->create([
+        'username' => 'expire.extend.later',
+        'vorname' => 'Expire',
+        'nachname' => 'Later',
+        'email' => 'expire.extend.later@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->andReturn([
+            cloudshareSampleShare([
+                'name' => 'Spaeter-Ablauf',
+                'id' => 'share-later',
+                'expiration' => '31.12.2026 23:59 Uhr',
+            ]),
+        ]);
+        $mock->shouldReceive('quota')->andReturn(null);
+        $mock->shouldReceive('listFiles')->andReturn([]);
+    });
+
+    actingAs($user);
+
+    Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->call('openExtendModal', 'share-later')
+        ->assertSet('showExtendModal', false);
+});
+
+it('verlaengert die gueltigkeit aus dem widget', function (): void {
+    $user = User::factory()->create([
+        'username' => 'expire.widget.extend',
+        'vorname' => 'Expire',
+        'nachname' => 'WidgetExtend',
+        'email' => 'expire.widget.extend@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->andReturn([
+            cloudshareSampleShare([
+                'name' => 'Bald-Ablauf',
+                'id' => 'share-soon',
+                'expiration' => '20.08.2026 23:59 Uhr',
+            ]),
+        ]);
+        $mock->shouldReceive('extendShareExpiration')
+            ->once()
+            ->withArgs(function (mixed $authUser, string $shareId, string $expiresAt): bool {
+                return $shareId === 'share-soon' && $expiresAt === '2026-08-25';
+            })
+            ->andReturn(cloudshareSampleShare([
+                'name' => 'Bald-Ablauf',
+                'id' => 'share-soon',
+                'expiration' => '25.08.2026 00:00 Uhr',
+            ]));
+    });
+
+    actingAs($user);
+
+    Livewire::test('intranet-app-cloudshare::apps.cloudshare.widgets.ablaufende-freigaben')
+        ->call('openExtendModal', 'share-soon', 'Bald-Ablauf')
+        ->assertSet('showExtendModal', true)
+        ->set('extendExpiresAt', '2026-08-25')
+        ->call('extendShareExpiration')
+        ->assertHasNoErrors()
+        ->assertSet('showExtendModal', false);
 });

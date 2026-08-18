@@ -14,8 +14,8 @@ class CloudshareDashboardWidgetProvider implements DashboardWidgetProviderInterf
         return [
             new DashboardWidgetDefinition(
                 key: 'ablaufende-freigaben',
-                title: 'Bald ablaufende Freigaben',
-                description: 'Ihre Cloud-Share-Freigaben, die innerhalb der eingestellten Frist ablaufen',
+                title: 'Ablaufende Freigaben',
+                description: 'Ihre Cloud-Share-Freigaben, die abgelaufen sind oder bald ablaufen',
                 component: 'intranet-app-cloudshare::apps.cloudshare.widgets.ablaufende-freigaben',
                 defaultW: 6,
                 defaultH: 5,

@@ -55,6 +55,21 @@ interface CloudshareServiceInterface
     public function findShare(Authenticatable $user, string $id): ?array;
 
     /**
+     * @return array{
+     *     name: string,
+     *     id: string,
+     *     url: string,
+     *     created_at: string,
+     *     password: bool,
+     *     has_stored_password: bool,
+     *     expiration: ?string,
+     *     writeable: bool,
+     *     file_count: int
+     * }
+     */
+    public function extendShareExpiration(Authenticatable $user, string $shareId, string $expiresAt): array;
+
+    /**
      * @return list<array{file: string, href: string, modified: string, size: int|string, id: string}>
      */
     public function listFiles(Authenticatable $user, string $folderName): array;

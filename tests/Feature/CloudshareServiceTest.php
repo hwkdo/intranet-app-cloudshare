@@ -69,6 +69,28 @@ function cloudshareGraphShareFolder(string $id, string $name, ?DateTimeInterface
     return $folder;
 }
 
+if (! function_exists('cloudshareAnonymousPermission')) {
+    function cloudshareAnonymousPermission(
+        string $permId = 'perm-1',
+        bool $writeable = false,
+        mixed $expiration = null,
+        string $url = 'https://example.com/share',
+        bool $hasPassword = false,
+    ): object {
+        $link = Mockery::mock();
+        $link->shouldReceive('getWebUrl')->andReturn($url);
+
+        $perm = Mockery::mock();
+        $perm->shouldReceive('getId')->andReturn($permId);
+        $perm->shouldReceive('getLink')->andReturn($link);
+        $perm->shouldReceive('getExpirationDateTime')->andReturn($expiration);
+        $perm->shouldReceive('getHasPassword')->andReturn($hasPassword);
+        $perm->shouldReceive('getRoles')->andReturn($writeable ? ['write'] : ['read']);
+
+        return $perm;
+    }
+}
+
 it('listet freigaben über den oneDrive service', function (): void {
     $user = cloudshareUser();
     actingAs($user);
@@ -680,3 +702,93 @@ it('uebergibt den originalen dateinamen an onedrive', function (): void {
 
     app(CloudshareService::class)->uploadFile($user, 'Projekt-X', '/tmp/fake', 'test.pdf');
 });
+
+it('verlaengert die gueltigkeit einer freigabe per updateLink', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    $expectedExpiration = Carbon::createFromFormat('Y-m-d', '2030-01-15', config('app.timezone'))
+        ->startOfDay()
+        ->toIso8601String();
+
+    $folder = cloudshareGraphShareFolder('folder-extend', 'Verlaengern');
+    $perm = cloudshareAnonymousPermission(
+        permId: 'perm-extend',
+        expiration: Carbon::parse('2030-01-15 00:00:00', config('app.timezone')),
+    );
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('makeFolder')->once()->andReturn($folder);
+    $oneDrive->shouldReceive('getUserDriveContent')->once()->andReturn([$folder]);
+    $oneDrive->shouldReceive('getDriveItemPermissions')->twice()->andReturn(collect([$perm]));
+    $oneDrive->shouldReceive('updateLink')
+        ->once()
+        ->with(Mockery::type('string'), 'folder-extend', 'perm-extend', ['expirationDateTime' => $expectedExpiration])
+        ->andReturn((object) []);
+    $oneDrive->shouldNotReceive('shareReadOnly');
+    $oneDrive->shouldNotReceive('shareReadWrite');
+
+    $share = app(CloudshareService::class)->extendShareExpiration($user, 'folder-extend', '2030-01-15');
+
+    expect($share['id'])->toBe('folder-extend')
+        ->and($share['expiration'])->toBe('15.01.2030 00:00 Uhr');
+});
+
+it('erzeugt den link neu wenn updateLink nicht moeglich ist', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    CloudshareShare::query()->create([
+        'user_id' => $user->id,
+        'onedrive_item_id' => 'folder-recreate',
+        'folder_name' => 'Neu erzeugen',
+        'password' => 'secret123',
+    ]);
+
+    $expectedExpiration = Carbon::createFromFormat('Y-m-d', '2030-01-15', config('app.timezone'))
+        ->startOfDay()
+        ->toIso8601String();
+
+    $folder = cloudshareGraphShareFolder('folder-recreate', 'Neu erzeugen');
+    $perm = cloudshareAnonymousPermission(
+        permId: '',
+        writeable: true,
+        expiration: Carbon::parse('2030-01-15 00:00:00', config('app.timezone')),
+        hasPassword: true,
+    );
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('makeFolder')->once()->andReturn($folder);
+    $oneDrive->shouldReceive('getUserDriveContent')->once()->andReturn([$folder]);
+    $oneDrive->shouldReceive('getDriveItemPermissions')->twice()->andReturn(collect([$perm]));
+    $oneDrive->shouldNotReceive('updateLink');
+    $oneDrive->shouldReceive('shareReadWrite')
+        ->once()
+        ->with(Mockery::type('string'), 'folder-recreate', 'secret123', $expectedExpiration)
+        ->andReturn('https://example.com/rw');
+
+    $share = app(CloudshareService::class)->extendShareExpiration($user, 'folder-recreate', '2030-01-15');
+
+    expect($share['id'])->toBe('folder-recreate')
+        ->and($share['writeable'])->toBeTrue();
+});
+
+it('lehnt verlaengerung auf ein datum in der vergangenheit ab', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    mockCloudshareOneDrive()->shouldNotReceive('makeFolder');
+
+    app(CloudshareService::class)->extendShareExpiration($user, 'folder-extend', now()->toDateString());
+})->throws(InvalidArgumentException::class);
+
+it('wirft wenn die freigabe zum verlaengern nicht gefunden wird', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('makeFolder')->once()->andReturn(cloudshareGraphShareFolder('other', 'Andere'));
+    $oneDrive->shouldReceive('getUserDriveContent')->once()->andReturn([]);
+
+    app(CloudshareService::class)->extendShareExpiration($user, 'folder-missing', now()->addDay()->toDateString());
+})->throws(InvalidArgumentException::class);

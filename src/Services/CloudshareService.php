@@ -152,6 +152,53 @@ class CloudshareService implements CloudshareServiceInterface
         return null;
     }
 
+    public function extendShareExpiration(Authenticatable $user, string $shareId, string $expiresAt): array
+    {
+        $shareId = trim($shareId);
+
+        if ($shareId === '') {
+            throw new InvalidArgumentException('Freigabe nicht gefunden.');
+        }
+
+        $expiration = $this->normalizeShareExpiresAt($expiresAt);
+        $upn = $this->upn($user);
+        $oneDrive = $this->driveFor($user);
+        $root = $this->rootFolder();
+
+        $oneDrive->makeFolder($upn, $root);
+
+        $folder = collect($oneDrive->getUserDriveContent($upn, $root) ?? [])->first(
+            function (mixed $item) use ($shareId): bool {
+                if (! is_object($item) || ! method_exists($item, 'getId')) {
+                    return false;
+                }
+
+                return (string) $item->getId() === $shareId
+                    && (bool) $item->getFolder()
+                    && (bool) $item->getShared();
+            },
+        );
+
+        if ($folder === null) {
+            throw new InvalidArgumentException('Freigabe nicht gefunden.');
+        }
+
+        $this->applyShareExpiration($user, $oneDrive, $upn, $shareId, $expiration);
+
+        $storedByItemId = CloudshareShare::query()
+            ->where('user_id', $user->getAuthIdentifier())
+            ->get()
+            ->keyBy('onedrive_item_id');
+
+        $shareData = $this->mapShare($folder, $upn, $storedByItemId, $oneDrive);
+
+        if ($shareData === null) {
+            throw new RuntimeException('Die Gültigkeit konnte nicht verlängert werden.');
+        }
+
+        return $shareData;
+    }
+
     public function listFiles(Authenticatable $user, string $folderName): array
     {
         $upn = $this->upn($user);
@@ -351,6 +398,53 @@ class CloudshareService implements CloudshareServiceInterface
         return $settings instanceof AppSettings
             ? $settings
             : new AppSettings;
+    }
+
+    protected function applyShareExpiration(
+        Authenticatable $user,
+        MsGraphOneDriveServiceInterface $oneDrive,
+        string $upn,
+        string $shareId,
+        Carbon $expiration,
+    ): void {
+        $iso = $expiration->toIso8601String();
+        $perms = $oneDrive->getDriveItemPermissions($upn, $shareId, 'anonymous');
+        $perm = collect($perms)->first();
+        $permId = is_object($perm) && method_exists($perm, 'getId') ? $perm->getId() : null;
+        $roles = is_object($perm) && method_exists($perm, 'getRoles') ? ($perm->getRoles() ?? []) : [];
+        $writeable = in_array('write', $roles, true);
+
+        if (is_string($permId) && $permId !== '') {
+            try {
+                $oneDrive->updateLink($upn, $shareId, $permId, [
+                    'expirationDateTime' => $iso,
+                ]);
+
+                return;
+            } catch (Throwable) {
+            }
+        }
+
+        $password = $this->storedPasswordForShare($user, $shareId);
+        $url = $writeable
+            ? $oneDrive->shareReadWrite($upn, $shareId, $password, $iso)
+            : $oneDrive->shareReadOnly($upn, $shareId, $password, $iso);
+
+        if (! is_string($url) || $url === '') {
+            throw new RuntimeException('Die Gültigkeit konnte nicht verlängert werden.');
+        }
+    }
+
+    protected function storedPasswordForShare(Authenticatable $user, string $shareId): ?string
+    {
+        $stored = CloudshareShare::query()
+            ->where('user_id', $user->getAuthIdentifier())
+            ->where('onedrive_item_id', $shareId)
+            ->first();
+
+        $password = $stored?->password;
+
+        return is_string($password) && $password !== '' ? $password : null;
     }
 
     protected function normalizeShareExpiresAt(string $expiresAt): Carbon
