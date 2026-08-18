@@ -9,6 +9,7 @@ use Hwkdo\IntranetAppCloudshare\Data\UserSettings;
 use Hwkdo\IntranetAppCloudshare\Mail\CloudshareSharedMail;
 use Hwkdo\IntranetAppCloudshare\Models\IntranetAppCloudshareSettings;
 use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
+use Illuminate\Http\UploadedFile;
 use Livewire\Livewire;
 use Spatie\Permission\Models\Permission;
 
@@ -633,4 +634,66 @@ it('lädt user settings auch wenn altes defaultViewMode in den daten steht', fun
 
     expect($settings->notificationsEnabled)->toBeFalse()
         ->and($settings->toArray())->not->toHaveKey('defaultViewMode');
+});
+
+it('bietet im upload-modal eine drag-and-drop-flaeche', function (): void {
+    $user = User::factory()->create([
+        'username' => 'upload.drop',
+        'vorname' => 'Upload',
+        'nachname' => 'Drop',
+        'email' => 'upload.drop@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->andReturn([
+            cloudshareSampleShare([
+                'name' => 'Projekt-X',
+                'id' => 'share-1',
+            ]),
+        ]);
+        $mock->shouldReceive('quota')->andReturn(null);
+        $mock->shouldReceive('listFiles')->andReturn([]);
+    });
+
+    actingAs($user);
+
+    Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->call('openUploadModal', 'share-1', 'Projekt-X')
+        ->assertSet('showUploadModal', true)
+        ->assertSee('Datei hierher ziehen oder klicken')
+        ->assertSee('Eine Datei, maximal 250 MB');
+});
+
+it('kann die ausgewaehlte upload-datei wieder entfernen', function (): void {
+    $user = User::factory()->create([
+        'username' => 'upload.remove',
+        'vorname' => 'Upload',
+        'nachname' => 'Remove',
+        'email' => 'upload.remove@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->andReturn([
+            cloudshareSampleShare([
+                'name' => 'Projekt-X',
+                'id' => 'share-1',
+            ]),
+        ]);
+        $mock->shouldReceive('quota')->andReturn(null);
+        $mock->shouldReceive('listFiles')->andReturn([]);
+    });
+
+    actingAs($user);
+
+    $file = UploadedFile::fake()->create('angebot.pdf', 100, 'application/pdf');
+
+    Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->call('openUploadModal', 'share-1', 'Projekt-X')
+        ->set('uploadFile', $file)
+        ->assertSee('angebot.pdf')
+        ->call('removeUploadFile')
+        ->assertSet('uploadFile', null)
+        ->assertDontSee('angebot.pdf');
 });

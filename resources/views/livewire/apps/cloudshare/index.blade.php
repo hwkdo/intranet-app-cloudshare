@@ -163,6 +163,16 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
         $this->showUploadModal = true;
     }
 
+    public function removeUploadFile(): void
+    {
+        if ($this->uploadFile instanceof TemporaryUploadedFile) {
+            $this->uploadFile->delete();
+        }
+
+        $this->uploadFile = null;
+        $this->resetErrorBag('uploadFile');
+    }
+
     public function uploadToShare(CloudshareServiceInterface $cloudshare): void
     {
         $maxKb = (int) config('intranet-app-cloudshare.max_upload_kb', 256000);
@@ -406,6 +416,18 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
         }
 
         return number_format($bytes / 1024, 2, ',', '.').' KB';
+    }
+
+    public function maxUploadDescription(): string
+    {
+        $maxKb = (int) config('intranet-app-cloudshare.max_upload_kb', 256000);
+        $mb = (int) round($maxKb / 1024);
+
+        if ($mb >= 1) {
+            return 'Eine Datei, maximal '.$mb.' MB';
+        }
+
+        return 'Eine Datei, maximal '.$maxKb.' KB';
     }
 
     /**
@@ -796,20 +818,32 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
             </form>
         </flux:modal>
 
-        <flux:modal wire:model="showUploadModal" class="md:w-[28rem] space-y-6">
+        <flux:modal wire:model="showUploadModal" class="md:w-[32rem] space-y-6">
             <div>
                 <flux:heading size="lg">Upload</flux:heading>
                 <flux:text class="mt-1">Datei in die Freigabe „{{ $uploadFolderName }}“ hochladen.</flux:text>
             </div>
 
             <form wire:submit="uploadToShare" class="space-y-4">
-                <flux:field>
-                    <flux:label>Datei</flux:label>
-                    <input type="file" wire:model="uploadFile" class="block w-full text-sm" />
-                    <flux:error name="uploadFile" />
-                </flux:field>
+                <flux:file-upload wire:model="uploadFile" label="Datei">
+                    <flux:file-upload.dropzone
+                        heading="Datei hierher ziehen oder klicken"
+                        :text="$this->maxUploadDescription()"
+                        with-progress
+                    />
+                </flux:file-upload>
 
-                <div wire:loading wire:target="uploadFile" class="text-sm text-zinc-500">Datei wird vorbereitet …</div>
+                @if ($uploadFile)
+                    <flux:file-item
+                        :heading="$uploadFile->getClientOriginalName()"
+                        :size="$uploadFile->getSize()"
+                        :invalid="$errors->has('uploadFile')"
+                    >
+                        <x-slot name="actions">
+                            <flux:file-item.remove wire:click="removeUploadFile" aria-label="Datei entfernen" />
+                        </x-slot>
+                    </flux:file-item>
+                @endif
 
                 <div class="flex justify-end gap-2">
                     <flux:button type="button" variant="ghost" wire:click="$set('showUploadModal', false)">Abbrechen</flux:button>
