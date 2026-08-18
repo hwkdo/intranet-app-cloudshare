@@ -8,12 +8,13 @@ use Hwkdo\IntranetAppCloudshare\Models\IntranetAppCloudshareSettings;
 use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
+use Livewire\Attributes\Defer;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
 
-new #[Title('Cloudshare - Freigaben')] class extends Component
+new #[Title('Cloudshare - Freigaben')] #[Defer] class extends Component
 {
     use WithFileUploads;
 
@@ -73,11 +74,11 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
     /** @var list<string> */
     public array $updatedShareIdsSinceOpen = [];
 
-    public function mount(CloudshareServiceInterface $cloudshare): void
+    public function mount(): void
     {
         $this->hinweisText = $this->appSettings()->hinweisText;
 
-        $this->refreshData($cloudshare);
+        $this->refreshData();
         $this->fileIdsSeenOnOpen = $this->currentFileIds();
     }
 
@@ -573,6 +574,32 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
 };
 ?>
 
+@placeholder
+<div>
+    <x-intranet-app-cloudshare::cloudshare-layout heading="Cloudshare" subheading="Temporäre OneDrive-Freigaben für Externe">
+        <div class="space-y-4">
+            <flux:callout icon="cloud">
+                <flux:callout.heading>Daten werden von Microsoft geladen</flux:callout.heading>
+                <flux:callout.text>
+                    Cloudshare ruft Ihre Freigaben und Dateien aus OneDrive ab. Das kann einige Sekunden dauern.
+                </flux:callout.text>
+            </flux:callout>
+
+            <div class="flex items-center gap-2 text-sm text-zinc-500">
+                <flux:icon.arrow-path class="size-5 animate-spin" />
+                Bitte warten …
+            </div>
+
+            <flux:skeleton.group animate="shimmer" class="space-y-4">
+                <flux:skeleton class="h-24 w-full rounded-xl" />
+                <flux:skeleton class="h-24 w-full rounded-xl" />
+                <flux:skeleton class="h-24 w-full rounded-xl" />
+            </flux:skeleton.group>
+        </div>
+    </x-intranet-app-cloudshare::cloudshare-layout>
+</div>
+@endplaceholder
+
 <div>
     <x-intranet-app-cloudshare::cloudshare-layout heading="Cloudshare" subheading="Temporäre OneDrive-Freigaben für Externe">
         <div class="space-y-6">
@@ -645,7 +672,7 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
 
             <div wire:loading.flex wire:target="refreshData,createShare,uploadToShare,deleteItem" class="hidden items-center gap-2 text-sm text-zinc-500">
                 <flux:icon.arrow-path class="size-4 animate-spin" />
-                Wird geladen …
+                Daten werden von Microsoft OneDrive geladen …
             </div>
 
             @if (count($shares) === 0 && $errorMessage === '')

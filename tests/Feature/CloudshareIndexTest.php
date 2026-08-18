@@ -10,6 +10,7 @@ use Hwkdo\IntranetAppCloudshare\Mail\CloudshareSharedMail;
 use Hwkdo\IntranetAppCloudshare\Models\IntranetAppCloudshareSettings;
 use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
 use Illuminate\Http\UploadedFile;
+use Livewire\Features\SupportLazyLoading\SupportLazyLoading;
 use Livewire\Livewire;
 use Spatie\Permission\Models\Permission;
 
@@ -19,6 +20,7 @@ use function Pest\Laravel\get;
 beforeEach(function (): void {
     Permission::findOrCreate('see-app-cloudshare', 'web');
     Permission::findOrCreate('manage-app-cloudshare', 'web');
+    Livewire::withoutLazyLoading();
 });
 
 it('verbietet den index ohne permission', function (): void {
@@ -31,6 +33,26 @@ it('verbietet den index ohne permission', function (): void {
     actingAs($user);
 
     get(route('apps.cloudshare.index'))->assertForbidden();
+});
+
+it('zeigt beim ersten seitenaufruf einen hinweis auf den microsoft-abruf', function (): void {
+    $user = User::factory()->create([
+        'username' => 'graph.loading',
+        'vorname' => 'Graph',
+        'nachname' => 'Loading',
+        'email' => 'graph.loading@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    actingAs($user);
+
+    SupportLazyLoading::$disableWhileTesting = false;
+
+    get(route('apps.cloudshare.index'))
+        ->assertSuccessful()
+        ->assertSee('Daten werden von Microsoft geladen')
+        ->assertSee('Freigaben und Dateien aus OneDrive')
+        ->assertDontSee('Sie haben noch keine Freigaben');
 });
 
 it('zeigt den index mit permission und gemocktem service', function (): void {
