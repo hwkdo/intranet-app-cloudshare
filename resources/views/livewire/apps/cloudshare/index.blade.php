@@ -5,6 +5,7 @@ use Hwkdo\IntranetAppCloudshare\Contracts\CloudshareServiceInterface;
 use Hwkdo\IntranetAppCloudshare\Data\AppSettings;
 use Hwkdo\IntranetAppCloudshare\Mail\CloudshareSharedMail;
 use Hwkdo\IntranetAppCloudshare\Models\IntranetAppCloudshareSettings;
+use Hwkdo\IntranetAppCloudshare\Support\CloudshareShareExpiration;
 use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
@@ -584,6 +585,17 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
         return ! empty($share['writeable']) ? 'aktiviert' : 'nicht aktiviert';
     }
 
+    /**
+     * @param  array{expiration?: ?string}  $share
+     */
+    public function shareIsExpiringSoon(array $share): bool
+    {
+        return CloudshareShareExpiration::isExpiringSoon(
+            $share,
+            CloudshareShareExpiration::expiringSoonDaysFor(Auth::user()),
+        );
+    }
+
     protected function appSettings(): AppSettings
     {
         $settings = IntranetAppCloudshareSettings::current()?->settings;
@@ -732,6 +744,7 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                         @class([
                             'space-y-4',
                             'ring-2 ring-blue-500 bg-blue-50! dark:bg-blue-900! dark:ring-sky-400' => $this->shareHasUpdatesSinceOpen($share['id']),
+                            'ring-2 ring-amber-500 bg-amber-50! dark:bg-amber-950/40 dark:ring-amber-400' => $this->shareIsExpiringSoon($share) && ! $this->shareHasUpdatesSinceOpen($share['id']),
                         ])
                     >
                         <div class="flex flex-wrap items-start justify-between gap-3">
@@ -781,19 +794,30 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                         </div>
 
                         <div class="space-y-2">
-                            @if ($this->shareHasUpdatesSinceOpen($share['id']))
-                                <flux:badge color="lime">Aktualisiert</flux:badge>
+                            @if ($this->shareHasUpdatesSinceOpen($share['id']) || $this->shareIsExpiringSoon($share))
+                                <div class="flex flex-wrap gap-2">
+                                    @if ($this->shareHasUpdatesSinceOpen($share['id']))
+                                        <flux:badge color="lime">Aktualisiert</flux:badge>
+                                    @endif
+                                    @if ($this->shareIsExpiringSoon($share))
+                                        <flux:badge color="amber">Läuft bald ab</flux:badge>
+                                    @endif
+                                </div>
                             @endif
 
                             <dl class="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-700 dark:border-zinc-700">
                                 @foreach ([
-                                    ['label' => 'Passwortschutz', 'value' => $this->sharePasswordProtectionLabel($share)],
-                                    ['label' => 'Gültig bis', 'value' => $this->shareExpirationLabel($share)],
-                                    ['label' => 'Gast-Upload', 'value' => $this->shareGuestUploadLabel($share)],
+                                    ['label' => 'Passwortschutz', 'value' => $this->sharePasswordProtectionLabel($share), 'highlight' => false],
+                                    ['label' => 'Gültig bis', 'value' => $this->shareExpirationLabel($share), 'highlight' => $this->shareIsExpiringSoon($share)],
+                                    ['label' => 'Gast-Upload', 'value' => $this->shareGuestUploadLabel($share), 'highlight' => false],
                                 ] as $property)
                                     <div class="flex flex-col gap-0.5 px-3 py-2 sm:flex-row sm:items-baseline sm:gap-4">
                                         <dt class="w-40 shrink-0 text-sm font-medium text-zinc-500 dark:text-zinc-400">{{ $property['label'] }}</dt>
-                                        <dd class="text-sm text-zinc-800 dark:text-zinc-200">{{ $property['value'] }}</dd>
+                                        <dd @class([
+                                            'text-sm',
+                                            'font-medium text-amber-700 dark:text-amber-300' => $property['highlight'],
+                                            'text-zinc-800 dark:text-zinc-200' => ! $property['highlight'],
+                                        ])>{{ $property['value'] }}</dd>
                                     </div>
                                 @endforeach
                             </dl>

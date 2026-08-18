@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Hwkdo\IntranetAppCloudshare;
 
 use Hwkdo\IntranetAppBase\Interfaces\IntranetAppInterface;
+use Hwkdo\IntranetAppBase\Interfaces\ProvidesDashboardWidgetsInterface;
+use Hwkdo\IntranetAppCloudshare\Dashboard\CloudshareDashboardWidgetProvider;
 use Illuminate\Support\Collection;
 
-class IntranetAppCloudshare implements IntranetAppInterface
+class IntranetAppCloudshare implements IntranetAppInterface, ProvidesDashboardWidgetsInterface
 {
     public static function app_name(): string
     {
@@ -47,5 +49,12 @@ class IntranetAppCloudshare implements IntranetAppInterface
     public static function mcpServers(): array
     {
         return [];
+    }
+
+    public static function dashboardWidgetProviders(): array
+    {
+        return [
+            CloudshareDashboardWidgetProvider::class,
+        ];
     }
 }

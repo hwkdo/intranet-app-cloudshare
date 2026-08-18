@@ -714,6 +714,7 @@ it('zeigt in den benutzereinstellungen keinen anzeigemodus', function (): void {
 
     Livewire::test('intranet-app-cloudshare::apps.cloudshare.settings.user')
         ->assertSuccessful()
+        ->assertSee('läuft bald ab')
         ->assertDontSee('Raster-Ansicht')
         ->assertDontSee('Listen-Ansicht')
         ->assertDontSee('Tabellen-Ansicht')
@@ -727,6 +728,7 @@ it('lädt user settings auch wenn altes defaultViewMode in den daten steht', fun
     ]);
 
     expect($settings->notificationsEnabled)->toBeFalse()
+        ->and($settings->expiringSoonDays)->toBe(7)
         ->and($settings->toArray())->not->toHaveKey('defaultViewMode');
 });
 
