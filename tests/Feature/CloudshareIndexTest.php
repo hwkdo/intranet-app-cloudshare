@@ -100,7 +100,69 @@ it('zeigt den index mit permission und gemocktem service', function (): void {
         ->assertSee('https://example.com/demo')
         ->assertSee('Link kopieren')
         ->assertSee('Link öffnen')
-        ->assertSee('Freigaben');
+        ->assertSee('Freigaben')
+        ->assertSeeInOrder([
+            'Passwortschutz',
+            'nicht aktiviert',
+            'Gültig bis',
+            '01.02.2026 10:00 Uhr',
+            'Gast-Upload',
+            'nicht aktiviert',
+        ])
+        ->assertDontSee('Passwortgeschützt');
+});
+
+it('stellt passwortschutz, gültigkeit und gast-upload zeilenweise dar', function (): void {
+    $user = User::factory()->create([
+        'username' => 'share.properties',
+        'vorname' => 'Share',
+        'nachname' => 'Properties',
+        'email' => 'share.properties@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->andReturn([
+            cloudshareSampleShare([
+                'name' => 'Projekt-X',
+                'id' => 'share-1',
+                'password' => true,
+                'expiration' => '31.12.2026 23:59 Uhr',
+                'writeable' => false,
+            ]),
+            cloudshareSampleShare([
+                'name' => 'Ohne-Ablauf',
+                'id' => 'share-2',
+                'password' => false,
+                'expiration' => null,
+                'writeable' => true,
+            ]),
+        ]);
+        $mock->shouldReceive('quota')->andReturn(null);
+        $mock->shouldReceive('listFiles')->andReturn([]);
+    });
+
+    actingAs($user);
+
+    Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->assertSuccessful()
+        ->assertSeeInOrder([
+            'Projekt-X',
+            'Passwortschutz',
+            'aktiviert',
+            'Gültig bis',
+            '31.12.2026 23:59 Uhr',
+            'Gast-Upload',
+            'nicht aktiviert',
+            'Ohne-Ablauf',
+            'Passwortschutz',
+            'nicht aktiviert',
+            'Gültig bis',
+            'ohne Ablaufdatum',
+            'Gast-Upload',
+            'aktiviert',
+        ])
+        ->assertDontSee('Passwortgeschützt');
 });
 
 it('filtert freigaben nach namen und enthaltenen dateien', function (): void {

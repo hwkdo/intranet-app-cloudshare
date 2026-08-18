@@ -554,6 +554,36 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
         $this->updatedShareIdsSinceOpen = [];
     }
 
+    /**
+     * @param  array{password?: bool}  $share
+     */
+    public function sharePasswordProtectionLabel(array $share): string
+    {
+        return ! empty($share['password']) ? 'aktiviert' : 'nicht aktiviert';
+    }
+
+    /**
+     * @param  array{expiration?: ?string}  $share
+     */
+    public function shareExpirationLabel(array $share): string
+    {
+        $expiration = $share['expiration'] ?? null;
+
+        if (is_string($expiration) && trim($expiration) !== '') {
+            return trim($expiration);
+        }
+
+        return 'ohne Ablaufdatum';
+    }
+
+    /**
+     * @param  array{writeable?: bool}  $share
+     */
+    public function shareGuestUploadLabel(array $share): string
+    {
+        return ! empty($share['writeable']) ? 'aktiviert' : 'nicht aktiviert';
+    }
+
     protected function appSettings(): AppSettings
     {
         $settings = IntranetAppCloudshareSettings::current()?->settings;
@@ -751,20 +781,22 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                         </div>
 
                         <div class="space-y-2">
-                            <div class="flex flex-wrap gap-2">
-                                @if ($this->shareHasUpdatesSinceOpen($share['id']))
-                                    <flux:badge color="lime">Aktualisiert</flux:badge>
-                                @endif
-                                @if ($share['password'])
-                                    <flux:badge color="red">Passwortgeschützt</flux:badge>
-                                @endif
-                                @if (is_string($share['expiration']))
-                                    <flux:badge color="amber">Gültig bis {{ $share['expiration'] }}</flux:badge>
-                                @endif
-                                @if ($share['writeable'])
-                                    <flux:badge color="blue">Gast-Upload</flux:badge>
-                                @endif
-                            </div>
+                            @if ($this->shareHasUpdatesSinceOpen($share['id']))
+                                <flux:badge color="lime">Aktualisiert</flux:badge>
+                            @endif
+
+                            <dl class="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-700 dark:border-zinc-700">
+                                @foreach ([
+                                    ['label' => 'Passwortschutz', 'value' => $this->sharePasswordProtectionLabel($share)],
+                                    ['label' => 'Gültig bis', 'value' => $this->shareExpirationLabel($share)],
+                                    ['label' => 'Gast-Upload', 'value' => $this->shareGuestUploadLabel($share)],
+                                ] as $property)
+                                    <div class="flex flex-col gap-0.5 px-3 py-2 sm:flex-row sm:items-baseline sm:gap-4">
+                                        <dt class="w-40 shrink-0 text-sm font-medium text-zinc-500 dark:text-zinc-400">{{ $property['label'] }}</dt>
+                                        <dd class="text-sm text-zinc-800 dark:text-zinc-200">{{ $property['value'] }}</dd>
+                                    </div>
+                                @endforeach
+                            </dl>
                         </div>
 
                         @if (count($this->filesForShare($share['id'])) > 0)
