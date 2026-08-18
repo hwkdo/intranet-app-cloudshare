@@ -6,6 +6,7 @@ use Hwkdo\IntranetAppCloudshare\Data\AppSettings;
 use Hwkdo\IntranetAppCloudshare\Models\IntranetAppCloudshareSettings;
 use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
 use Illuminate\Support\Facades\Auth;
+use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
@@ -61,6 +62,8 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
     public bool $needsMicrosoftLogin = false;
 
     public string $hinweisText = '';
+
+    public string $search = '';
 
     public function mount(CloudshareServiceInterface $cloudshare): void
     {
@@ -315,6 +318,44 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
         return $this->filesByShareId[$shareId] ?? [];
     }
 
+    public function searchTerm(): string
+    {
+        return mb_strtolower(trim($this->search));
+    }
+
+    /**
+     * @return list<array{name: string, id: string, url: string, created_at: string, password: bool, has_stored_password: bool, expiration: ?string, writeable: bool, file_count?: int}>
+     */
+    #[Computed]
+    public function filteredShares(): array
+    {
+        $term = $this->searchTerm();
+
+        if ($term === '') {
+            return $this->shares;
+        }
+
+        return collect($this->shares)
+            ->filter(fn (array $share): bool => $this->shareMatchesSearch($share, $term))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  array{name: string, id: string}  $share
+     */
+    protected function shareMatchesSearch(array $share, string $term): bool
+    {
+        if (str_contains(mb_strtolower((string) $share['name']), $term)) {
+            return true;
+        }
+
+        return collect($this->filesByShareId[$share['id']] ?? [])
+            ->contains(function (array $file) use ($term): bool {
+                return str_contains(mb_strtolower((string) ($file['file'] ?? '')), $term);
+            });
+    }
+
     public function currentShareForMail(): ?array
     {
         $share = collect($this->shares)->firstWhere('id', $this->shareIdForMail);
@@ -356,8 +397,25 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
         <div class="space-y-6">
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <flux:heading size="lg">Freigaben</flux:heading>
-                <flux:button variant="primary" icon="plus" wire:click="openCreateModal" :disabled="$needsMicrosoftLogin">Neu</flux:button>
+                <div class="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+                    <div class="w-full sm:w-72">
+                        <flux:input
+                            wire:model.live.debounce.300ms="search"
+                            type="search"
+                            icon="magnifying-glass"
+                            placeholder="Freigaben und Dateien suchen"
+                            clearable
+                            aria-label="Freigaben und Dateien suchen"
+                            :disabled="$needsMicrosoftLogin || count($shares) === 0"
+                        />
+                    </div>
+                    <flux:button variant="primary" icon="plus" wire:click="openCreateModal" :disabled="$needsMicrosoftLogin">Neu</flux:button>
+                </div>
             </div>
+
+            @if ($this->searchTerm() !== '' && count($shares) > 0)
+                <flux:text class="text-sm">{{ count($this->filteredShares) }} von {{ count($shares) }} Freigaben</flux:text>
+            @endif
 
             @if ($needsMicrosoftLogin)
                 <flux:callout variant="warning" icon="exclamation-triangle">
@@ -414,11 +472,16 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
                     <flux:heading size="md">Sie haben noch keine Freigaben</flux:heading>
                     <flux:text class="mt-2">Legen Sie eine neue Freigabe an, um Dateien mit Externen zu teilen.</flux:text>
                 </flux:card>
+            @elseif (count($this->filteredShares) === 0 && $this->searchTerm() !== '')
+                <flux:card class="text-center py-10">
+                    <flux:heading size="md">Keine Treffer</flux:heading>
+                    <flux:text class="mt-2">Keine Freigaben oder Dateien zu „{{ $search }}“.</flux:text>
+                </flux:card>
             @endif
 
             <div class="space-y-4">
-                @foreach ($shares as $share)
-                    <flux:card class="space-y-4">
+                @foreach ($this->filteredShares as $share)
+                    <flux:card class="space-y-4" wire:key="share-{{ $share['id'] }}">
                         <div class="flex flex-wrap items-start justify-between gap-3">
                             <div>
                                 <flux:heading size="md">{{ $share['name'] }}</flux:heading>
