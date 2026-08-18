@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 use App\Models\User;
 use Hwkdo\IntranetAppCloudshare\Contracts\CloudshareServiceInterface;
+use Hwkdo\IntranetAppCloudshare\Data\AppSettings;
 use Hwkdo\IntranetAppCloudshare\Data\UserSettings;
+use Hwkdo\IntranetAppCloudshare\Models\IntranetAppCloudshareSettings;
 use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
 use Livewire\Livewire;
 use Spatie\Permission\Models\Permission;
@@ -191,6 +193,35 @@ it('lehnt gültigkeit am heutigen tag im formular ab', function (): void {
         ->assertHasErrors(['newExpiresAt']);
 });
 
+it('zeigt deutsche validierungsmeldung bei zu kurzem passwort', function (): void {
+    $user = User::factory()->create([
+        'username' => 'password.user',
+        'vorname' => 'Password',
+        'nachname' => 'User',
+        'email' => 'password.user@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->andReturn([]);
+        $mock->shouldReceive('quota')->andReturn(null);
+        $mock->shouldReceive('createShare')->never();
+    });
+
+    actingAs($user);
+
+    $component = Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->set('showCreateModal', true)
+        ->set('newName', 'Demo')
+        ->set('newPassword', 'kurz')
+        ->set('newExpiresAt', now()->addDay()->toDateString())
+        ->call('createShare')
+        ->assertHasErrors(['newPassword']);
+
+    expect($component->errors()->first('newPassword'))
+        ->toBe('Passwort muss mindestens 8 Zeichen lang sein.');
+});
+
 it('verbietet admin ohne manage permission', function (): void {
     $user = User::factory()->create([
         'username' => 'user.only',
@@ -227,6 +258,246 @@ it('zeigt den hinweis zur microsoft-anmeldung wenn der delegated token fehlt', f
         ->assertSee('Microsoft-Anmeldung erforderlich')
         ->assertSee('Mit Microsoft anmelden')
         ->assertSet('needsMicrosoftLogin', true);
+});
+
+it('pollt dateien nur bei freigaben mit gast-upload', function (): void {
+    $user = User::factory()->create([
+        'username' => 'poll.user',
+        'vorname' => 'Poll',
+        'nachname' => 'User',
+        'email' => 'poll.user@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->andReturn([
+            cloudshareSampleShare([
+                'name' => 'Gastordner',
+                'id' => 'share-guest',
+                'writeable' => true,
+            ]),
+        ]);
+        $mock->shouldReceive('quota')->andReturn(null);
+        $mock->shouldReceive('listFiles')->andReturn([]);
+    });
+
+    actingAs($user);
+
+    Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->assertSuccessful()
+        ->assertSee('Freigaben mit Gast-Upload werden automatisch aktualisiert.')
+        ->assertSeeHtml('wire:poll.30s.visible="refreshGuestUploads"');
+});
+
+it('pollt nicht wenn keine gast-upload-freigabe existiert', function (): void {
+    $user = User::factory()->create([
+        'username' => 'nopoll.user',
+        'vorname' => 'NoPoll',
+        'nachname' => 'User',
+        'email' => 'nopoll.user@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->andReturn([
+            cloudshareSampleShare([
+                'name' => 'Nur Lesen',
+                'id' => 'share-readonly',
+                'writeable' => false,
+            ]),
+        ]);
+        $mock->shouldReceive('quota')->andReturn(null);
+        $mock->shouldReceive('listFiles')->andReturn([]);
+    });
+
+    actingAs($user);
+
+    Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->assertSuccessful()
+        ->assertDontSee('Freigaben mit Gast-Upload werden automatisch aktualisiert.')
+        ->assertDontSeeHtml('refreshGuestUploads');
+});
+
+it('zeigt neue gast-dateien nach dem polling ohne seitenneuladen', function (): void {
+    $user = User::factory()->create([
+        'username' => 'guestfile.user',
+        'vorname' => 'Guest',
+        'nachname' => 'File',
+        'email' => 'guestfile.user@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->once()->andReturn([
+            cloudshareSampleShare([
+                'name' => 'Gastordner',
+                'id' => 'share-guest',
+                'writeable' => true,
+            ]),
+        ]);
+        $mock->shouldReceive('quota')->once()->andReturn(null);
+        $mock->shouldReceive('listFiles')->twice()->andReturn(
+            [],
+            [[
+                'file' => 'vom-gast.pdf',
+                'href' => 'https://example.com/vom-gast.pdf',
+                'modified' => '18.08.2026 10:25',
+                'size' => 2048,
+                'id' => 'file-guest-1',
+            ]],
+        );
+    });
+
+    actingAs($user);
+
+    $component = Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->assertDontSee('vom-gast.pdf')
+        ->assertDontSee('Aktualisiert');
+
+    expect($component->instance()->fileIsNewSinceOpen('file-guest-1'))->toBeFalse()
+        ->and($component->instance()->shareHasUpdatesSinceOpen('share-guest'))->toBeFalse();
+
+    $component->call('refreshGuestUploads')
+        ->assertSee('vom-gast.pdf')
+        ->assertSee('Aktualisiert');
+
+    expect($component->instance()->fileIsNewSinceOpen('file-guest-1'))->toBeTrue()
+        ->and($component->instance()->shareHasUpdatesSinceOpen('share-guest'))->toBeTrue();
+});
+
+it('hebt nur seit seitenaufruf hinzugekommene dateien hervor', function (): void {
+    $user = User::factory()->create([
+        'username' => 'highlight.user',
+        'vorname' => 'Highlight',
+        'nachname' => 'User',
+        'email' => 'highlight.user@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $existingFile = [
+        'file' => 'alt.pdf',
+        'href' => 'https://example.com/alt.pdf',
+        'modified' => '17.08.2026 09:00',
+        'size' => 1024,
+        'id' => 'file-old',
+    ];
+    $newFile = [
+        'file' => 'vom-gast.pdf',
+        'href' => 'https://example.com/vom-gast.pdf',
+        'modified' => '18.08.2026 10:25',
+        'size' => 2048,
+        'id' => 'file-guest-1',
+    ];
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock) use ($existingFile, $newFile): void {
+        $mock->shouldReceive('listShares')->once()->andReturn([
+            cloudshareSampleShare([
+                'name' => 'Gastordner',
+                'id' => 'share-guest',
+                'writeable' => true,
+            ]),
+        ]);
+        $mock->shouldReceive('quota')->once()->andReturn(null);
+        $mock->shouldReceive('listFiles')->twice()->andReturn(
+            [$existingFile],
+            [$existingFile, $newFile],
+        );
+    });
+
+    actingAs($user);
+
+    $component = Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->assertSee('alt.pdf')
+        ->assertDontSee('Aktualisiert');
+
+    expect($component->instance()->fileIsNewSinceOpen('file-old'))->toBeFalse();
+
+    $component->call('refreshGuestUploads')
+        ->assertSee('vom-gast.pdf')
+        ->assertSee('Aktualisiert');
+
+    expect($component->instance()->fileIsNewSinceOpen('file-old'))->toBeFalse()
+        ->and($component->instance()->fileIsNewSinceOpen('file-guest-1'))->toBeTrue()
+        ->and($component->instance()->shareHasUpdatesSinceOpen('share-guest'))->toBeTrue();
+});
+
+it('nimmt das polling-intervall aus den appsettings', function (): void {
+    $user = User::factory()->create([
+        'username' => 'pollsettings.user',
+        'vorname' => 'Poll',
+        'nachname' => 'Settings',
+        'email' => 'pollsettings.user@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    IntranetAppCloudshareSettings::query()->delete();
+    IntranetAppCloudshareSettings::query()->create([
+        'version' => 1,
+        'settings' => new AppSettings(guestUploadPollSeconds: 15),
+    ]);
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->andReturn([
+            cloudshareSampleShare([
+                'name' => 'Gastordner',
+                'id' => 'share-guest',
+                'writeable' => true,
+            ]),
+        ]);
+        $mock->shouldReceive('quota')->andReturn(null);
+        $mock->shouldReceive('listFiles')->andReturn([]);
+    });
+
+    actingAs($user);
+
+    Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->assertSuccessful()
+        ->assertSeeHtml('wire:poll.15s.visible="refreshGuestUploads"');
+});
+
+it('deaktiviert polling wenn das intervall in den appsettings 0 ist', function (): void {
+    $user = User::factory()->create([
+        'username' => 'polloff.user',
+        'vorname' => 'Poll',
+        'nachname' => 'Off',
+        'email' => 'polloff.user@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    IntranetAppCloudshareSettings::query()->delete();
+    IntranetAppCloudshareSettings::query()->create([
+        'version' => 1,
+        'settings' => new AppSettings(guestUploadPollSeconds: 0),
+    ]);
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->andReturn([
+            cloudshareSampleShare([
+                'name' => 'Gastordner',
+                'id' => 'share-guest',
+                'writeable' => true,
+            ]),
+        ]);
+        $mock->shouldReceive('quota')->andReturn(null);
+        $mock->shouldReceive('listFiles')->andReturn([]);
+    });
+
+    actingAs($user);
+
+    Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->assertSuccessful()
+        ->assertDontSee('Freigaben mit Gast-Upload werden automatisch aktualisiert.')
+        ->assertDontSeeHtml('refreshGuestUploads');
+});
+
+it('fuellt fehlendes polling-intervall in alten appsettings mit default', function (): void {
+    $settings = AppSettings::from([
+        'hinweisText' => '',
+        'defaultBwSendMaxAccessCount' => 1,
+        'defaultBwSendDeleteInDays' => 7,
+    ]);
+
+    expect($settings->guestUploadPollSeconds)->toBe(30);
 });
 
 it('zeigt in den benutzereinstellungen keinen anzeigemodus', function (): void {

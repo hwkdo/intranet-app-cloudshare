@@ -18,5 +18,8 @@ class AppSettings extends BaseAppSettings
 
         #[Description('Bitwarden Send: automatische Löschung nach so vielen Tagen')]
         public int $defaultBwSendDeleteInDays = 7,
+
+        #[Description('Aktualisierungsintervall für Freigaben mit Gast-Upload in Sekunden (3–60). 0 deaktiviert die automatische Aktualisierung.')]
+        public int $guestUploadPollSeconds = 30,
     ) {}
 }

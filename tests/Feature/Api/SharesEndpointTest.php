@@ -81,3 +81,18 @@ it('lehnt gültigkeit am heutigen tag ab', function (): void {
         ->assertUnprocessable()
         ->assertJsonValidationErrors(['expires_at']);
 });
+
+it('zeigt deutsche validierungsmeldung bei zu kurzem passwort', function (): void {
+    $user = User::factory()->create();
+    Passport::actingAs($user);
+
+    $this->postJson('/api/cloudshare/shares', [
+        'name' => 'Neue Freigabe',
+        'password' => 'kurz',
+        'expires_at' => now()->addDay()->toDateString(),
+        'guest_upload' => false,
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['password'])
+        ->assertJsonPath('errors.password.0', 'Passwort muss mindestens 8 Zeichen lang sein.');
+});

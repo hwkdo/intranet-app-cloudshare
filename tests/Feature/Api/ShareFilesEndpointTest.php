@@ -42,7 +42,7 @@ it('laedt eine datei in eine bestehende freigabe hoch', function (): void {
     Passport::actingAs($user);
 
     $share = cloudshareSampleShare();
-    $file = UploadedFile::fake()->create('dokument.pdf', 100);
+    $file = UploadedFile::fake()->create('test.pdf', 100);
 
     $mock = mock(CloudshareServiceInterface::class);
     $mock->shouldReceive('findShare')
@@ -50,6 +50,9 @@ it('laedt eine datei in eine bestehende freigabe hoch', function (): void {
         ->andReturn($share);
     $mock->shouldReceive('uploadFile')
         ->once()
+        ->withArgs(function (mixed $uploadedBy, string $folderName, string $path, string $filename) use ($share): bool {
+            return $folderName === $share['name'] && $filename === 'test.pdf';
+        })
         ->andReturn(true);
 
     $this->post('/api/cloudshare/shares/item-123/files', [
@@ -58,7 +61,7 @@ it('laedt eine datei in eine bestehende freigabe hoch', function (): void {
         'Accept' => 'application/json',
     ])
         ->assertCreated()
-        ->assertJsonPath('file', 'dokument.pdf');
+        ->assertJsonPath('file', 'test.pdf');
 });
 
 it('liefert 404 wenn dateien einer unbekannten freigabe gelesen werden', function (): void {

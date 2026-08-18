@@ -65,15 +65,21 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
 
     public string $search = '';
 
+    /** @var list<string> */
+    public array $fileIdsSeenOnOpen = [];
+
+    /** @var list<string> */
+    public array $newFileIdsSinceOpen = [];
+
+    /** @var list<string> */
+    public array $updatedShareIdsSinceOpen = [];
+
     public function mount(CloudshareServiceInterface $cloudshare): void
     {
-        $settings = IntranetAppCloudshareSettings::query()->first();
-        $appSettings = $settings?->settings instanceof AppSettings
-            ? $settings->settings
-            : new AppSettings;
-        $this->hinweisText = $appSettings->hinweisText;
+        $this->hinweisText = $this->appSettings()->hinweisText;
 
         $this->refreshData($cloudshare);
+        $this->fileIdsSeenOnOpen = $this->currentFileIds();
     }
 
     public function refreshData(?CloudshareServiceInterface $cloudshare = null): void
@@ -90,6 +96,8 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
             foreach ($this->shares as $share) {
                 $this->filesByShareId[$share['id']] = $cloudshare->listFiles($user, $share['name']);
             }
+
+            $this->pruneHighlightsToExistingFiles();
         } catch (MicrosoftDelegatedTokenMissingException $e) {
             $this->markMicrosoftLoginRequired($e);
         } catch (\Throwable $e) {
@@ -97,6 +105,7 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
             $this->errorMessage = 'OneDrive konnte nicht geladen werden: '.$e->getMessage();
             $this->shares = [];
             $this->quota = null;
+            $this->clearHighlights();
         }
     }
 
@@ -192,6 +201,96 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
         } catch (\Throwable $e) {
             $this->errorMessage = 'Löschen fehlgeschlagen: '.$e->getMessage();
         }
+    }
+
+    public function refreshGuestUploads(?CloudshareServiceInterface $cloudshare = null): void
+    {
+        if (! $this->shouldPollGuestUploads()) {
+            return;
+        }
+
+        $cloudshare ??= app(CloudshareServiceInterface::class);
+        $user = Auth::user();
+
+        try {
+            foreach ($this->shares as $index => $share) {
+                if (! ($share['writeable'] ?? false)) {
+                    continue;
+                }
+
+                $previousIds = collect($this->filesByShareId[$share['id']] ?? [])
+                    ->pluck('id')
+                    ->filter(fn (mixed $id): bool => is_string($id) && $id !== '')
+                    ->values()
+                    ->all();
+
+                $files = $cloudshare->listFiles($user, $share['name']);
+                $this->filesByShareId[$share['id']] = $files;
+                $this->shares[$index]['file_count'] = count($files);
+
+                $arrivedIds = collect($files)
+                    ->pluck('id')
+                    ->filter(fn (mixed $id): bool => is_string($id) && $id !== '' && ! in_array($id, $previousIds, true) && ! in_array($id, $this->fileIdsSeenOnOpen, true))
+                    ->values()
+                    ->all();
+
+                foreach ($arrivedIds as $arrivedId) {
+                    if (! in_array($arrivedId, $this->newFileIdsSinceOpen, true)) {
+                        $this->newFileIdsSinceOpen[] = $arrivedId;
+                    }
+                }
+
+                if ($arrivedIds !== []) {
+                    if (! in_array($share['id'], $this->updatedShareIdsSinceOpen, true)) {
+                        $this->updatedShareIdsSinceOpen[] = $share['id'];
+                    }
+
+                    $newCount = count($arrivedIds);
+
+                    if ($newCount === 1) {
+                        Flux::toast(variant: 'success', text: 'Neue Datei in „'.$share['name'].'“.');
+                    } else {
+                        Flux::toast(variant: 'success', text: $newCount.' neue Dateien in „'.$share['name'].'“.');
+                    }
+                }
+            }
+
+            $this->pruneHighlightsToExistingFiles();
+        } catch (MicrosoftDelegatedTokenMissingException $e) {
+            $this->markMicrosoftLoginRequired($e);
+        } catch (\Throwable) {
+            // Bestehende Dateiliste bei Polling-Fehlern behalten.
+        }
+    }
+
+    public function guestUploadPollSeconds(): int
+    {
+        $seconds = $this->appSettings()->guestUploadPollSeconds;
+
+        if ($seconds <= 0) {
+            return 0;
+        }
+
+        return max(3, min(60, $seconds));
+    }
+
+    public function shouldPollGuestUploads(): bool
+    {
+        if ($this->guestUploadPollSeconds() <= 0) {
+            return false;
+        }
+
+        if ($this->needsMicrosoftLogin || $this->errorMessage !== '') {
+            return false;
+        }
+
+        if ($this->showCreateModal || $this->showUploadModal || $this->showShareModal) {
+            return false;
+        }
+
+        return collect($this->shares)->contains(
+            fn (array $share): bool => (bool) ($share['writeable'] ?? false),
+        );
     }
 
     public function openShareModal(CloudshareServiceInterface $cloudshare, string $shareId): void
@@ -315,7 +414,27 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
      */
     public function filesForShare(string $shareId): array
     {
-        return $this->filesByShareId[$shareId] ?? [];
+        return collect($this->filesByShareId[$shareId] ?? [])
+            ->sortByDesc(fn (array $file): bool => $this->fileIsNewSinceOpen((string) ($file['id'] ?? '')))
+            ->values()
+            ->all();
+    }
+
+    public function fileIsNewSinceOpen(string $fileId): bool
+    {
+        return $fileId !== '' && in_array($fileId, $this->newFileIdsSinceOpen, true);
+    }
+
+    public function shareHasUpdatesSinceOpen(string $shareId): bool
+    {
+        return $shareId !== '' && in_array($shareId, $this->updatedShareIdsSinceOpen, true);
+    }
+
+    public function newFileCountForShare(string $shareId): int
+    {
+        return collect($this->filesByShareId[$shareId] ?? [])
+            ->filter(fn (array $file): bool => $this->fileIsNewSinceOpen((string) ($file['id'] ?? '')))
+            ->count();
     }
 
     public function searchTerm(): string
@@ -379,6 +498,47 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
         $this->errorMessage = $e->getMessage();
         $this->shares = [];
         $this->quota = null;
+        $this->clearHighlights();
+    }
+
+    /**
+     * @return list<string>
+     */
+    protected function currentFileIds(): array
+    {
+        return collect($this->filesByShareId)
+            ->flatten(1)
+            ->map(fn (mixed $file): mixed => is_array($file) ? ($file['id'] ?? null) : null)
+            ->filter(fn (mixed $id): bool => is_string($id) && $id !== '')
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    protected function pruneHighlightsToExistingFiles(): void
+    {
+        $currentIds = $this->currentFileIds();
+        $this->newFileIdsSinceOpen = array_values(array_intersect($this->newFileIdsSinceOpen, $currentIds));
+
+        $this->updatedShareIdsSinceOpen = collect($this->updatedShareIdsSinceOpen)
+            ->filter(fn (string $shareId): bool => $this->newFileCountForShare($shareId) > 0)
+            ->values()
+            ->all();
+    }
+
+    protected function clearHighlights(): void
+    {
+        $this->newFileIdsSinceOpen = [];
+        $this->updatedShareIdsSinceOpen = [];
+    }
+
+    protected function appSettings(): AppSettings
+    {
+        $settings = IntranetAppCloudshareSettings::current()?->settings;
+
+        return $settings instanceof AppSettings
+            ? $settings
+            : new AppSettings;
     }
 
     protected function resetCreateForm(): void
@@ -479,9 +639,23 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
                 </flux:card>
             @endif
 
-            <div class="space-y-4">
+            <div
+                class="space-y-4"
+                @if ($this->shouldPollGuestUploads())
+                    wire:poll.{{ $this->guestUploadPollSeconds() }}s.visible="refreshGuestUploads"
+                @endif
+            >
+                @if ($this->shouldPollGuestUploads())
+                    <flux:text class="text-sm text-zinc-500">Freigaben mit Gast-Upload werden automatisch aktualisiert.</flux:text>
+                @endif
                 @foreach ($this->filteredShares as $share)
-                    <flux:card class="space-y-4" wire:key="share-{{ $share['id'] }}">
+                    <flux:card
+                        wire:key="share-{{ $share['id'] }}"
+                        @class([
+                            'space-y-4',
+                            'ring-2 ring-blue-500 bg-blue-50! dark:bg-blue-900! dark:ring-sky-400' => $this->shareHasUpdatesSinceOpen($share['id']),
+                        ])
+                    >
                         <div class="flex flex-wrap items-start justify-between gap-3">
                             <div>
                                 <flux:heading size="md">{{ $share['name'] }}</flux:heading>
@@ -530,6 +704,9 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
 
                         <div class="space-y-2">
                             <div class="flex flex-wrap gap-2">
+                                @if ($this->shareHasUpdatesSinceOpen($share['id']))
+                                    <flux:badge color="lime">Aktualisiert</flux:badge>
+                                @endif
                                 @if ($share['password'])
                                     <flux:badge color="red">Passwortgeschützt</flux:badge>
                                 @endif
@@ -553,8 +730,20 @@ new #[Title('Cloudshare - Freigaben')] class extends Component
                                     </flux:table.columns>
                                     <flux:table.rows>
                                         @foreach ($this->filesForShare($share['id']) as $file)
-                                            <flux:table.row wire:key="file-{{ $file['id'] }}">
-                                                <flux:table.cell>{{ $file['file'] }}</flux:table.cell>
+                                            <flux:table.row
+                                                wire:key="file-{{ $file['id'] }}"
+                                                @class([
+                                                    'bg-blue-50! dark:bg-blue-800!' => $this->fileIsNewSinceOpen((string) $file['id']),
+                                                ])
+                                            >
+                                                <flux:table.cell>
+                                                    <div class="flex flex-wrap items-center gap-2">
+                                                        <span>{{ $file['file'] }}</span>
+                                                        @if ($this->fileIsNewSinceOpen((string) $file['id']))
+                                                            <flux:badge color="lime">Neu</flux:badge>
+                                                        @endif
+                                                    </div>
+                                                </flux:table.cell>
                                                 <flux:table.cell>{{ $this->formatFileSize($file['size']) }}</flux:table.cell>
                                                 <flux:table.cell class="text-right">
                                                     <div class="flex justify-end gap-2">

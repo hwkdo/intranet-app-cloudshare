@@ -663,3 +663,20 @@ it('reicht fehlende microsoft tokens als exception durch', function (): void {
 
     app(CloudshareService::class)->listShares($user);
 })->throws(MicrosoftDelegatedTokenMissingException::class);
+
+it('uebergibt den originalen dateinamen an onedrive', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('uploadItemToUserDrive')
+        ->once()
+        ->withArgs(function (string $upn, string $filename, string $path, string $subdir): bool {
+            return $filename === 'test.pdf'
+                && $path === '/tmp/fake'
+                && str_ends_with($subdir, '/Projekt-X');
+        })
+        ->andReturn(true);
+
+    app(CloudshareService::class)->uploadFile($user, 'Projekt-X', '/tmp/fake', 'test.pdf');
+});
