@@ -21,7 +21,7 @@ interface CloudshareServiceInterface
      *     file_count: int
      * }>
      */
-    public function listShares(Authenticatable $user): array;
+    public function listShares(Authenticatable $user, bool $forceRefresh = false): array;
 
     /**
      * @param  array{name: string, password?: ?string, expires_at: string, guest_upload: bool}  $data
@@ -72,7 +72,13 @@ interface CloudshareServiceInterface
     /**
      * @return list<array{file: string, href: string, modified: string, size: int|string, id: string}>
      */
-    public function listFiles(Authenticatable $user, string $folderName): array;
+    public function listFiles(Authenticatable $user, string $folderName, bool $forceRefresh = false): array;
+
+    /**
+     * @param  list<array{id: string, name: string}>  $shares
+     * @return array<string, list<array{file: string, href: string, modified: string, size: int|string, id: string}>>
+     */
+    public function listFilesForShares(Authenticatable $user, array $shares, bool $forceRefresh = false): array;
 
     public function uploadFile(Authenticatable $user, string $folderName, string $localPath, string $originalFilename): mixed;
 
@@ -86,7 +92,7 @@ interface CloudshareServiceInterface
     /**
      * @return array{quota_free: int|float|null, quota_used: int|float|null, quota_total: int|float|null, quota_relative: float}|null
      */
-    public function quota(Authenticatable $user): ?array;
+    public function quota(Authenticatable $user, bool $forceRefresh = false): ?array;
 
     /**
      * @param  array{name: string, url: string, password?: bool, has_stored_password?: bool, expiration?: ?string, writeable?: bool}  $share

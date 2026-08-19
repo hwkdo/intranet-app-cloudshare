@@ -88,7 +88,7 @@ it('zeigt den index mit permission und gemocktem service', function (): void {
             'quota_total' => 1000,
             'quota_relative' => 50.0,
         ]);
-        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('listFilesForShares')->andReturn([]);
     });
 
     actingAs($user);
@@ -139,7 +139,7 @@ it('stellt passwortschutz, gültigkeit und gast-upload zeilenweise dar', functio
             ]),
         ]);
         $mock->shouldReceive('quota')->andReturn(null);
-        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('listFilesForShares')->andReturn([]);
     });
 
     actingAs($user);
@@ -185,13 +185,15 @@ it('stellt freigaben als eingeklappte klappliste dar', function (): void {
             ]),
         ]);
         $mock->shouldReceive('quota')->andReturn(null);
-        $mock->shouldReceive('listFiles')->andReturn([
-            [
-                'file' => 'angebot.pdf',
-                'href' => 'https://example.com/angebot.pdf',
-                'modified' => '17.08.2026 10:00',
-                'size' => 1024,
-                'id' => 'file-1',
+        $mock->shouldReceive('listFilesForShares')->andReturn([
+            'share-1' => [
+                [
+                    'file' => 'angebot.pdf',
+                    'href' => 'https://example.com/angebot.pdf',
+                    'modified' => '17.08.2026 10:00',
+                    'size' => 1024,
+                    'id' => 'file-1',
+                ],
             ],
         ]);
     });
@@ -243,25 +245,22 @@ it('filtert freigaben nach namen und enthaltenen dateien', function (): void {
             ]),
         ]);
         $mock->shouldReceive('quota')->andReturn(null);
-        $mock->shouldReceive('listFiles')->andReturnUsing(function (mixed $user, string $folderName): array {
-            return match ($folderName) {
-                'Projekt' => [[
-                    'file' => 'angebot.pdf',
-                    'href' => 'https://example.com/angebot.pdf',
-                    'modified' => '01.01.2026 10:00',
-                    'size' => 1024,
-                    'id' => 'file-angebot',
-                ]],
-                'Vertrag' => [[
-                    'file' => 'nda.docx',
-                    'href' => 'https://example.com/nda.docx',
-                    'modified' => '02.01.2026 10:00',
-                    'size' => 2048,
-                    'id' => 'file-nda',
-                ]],
-                default => [],
-            };
-        });
+        $mock->shouldReceive('listFilesForShares')->andReturn([
+            'share-projekt' => [[
+                'file' => 'angebot.pdf',
+                'href' => 'https://example.com/angebot.pdf',
+                'modified' => '01.01.2026 10:00',
+                'size' => 1024,
+                'id' => 'file-angebot',
+            ]],
+            'share-vertrag' => [[
+                'file' => 'nda.docx',
+                'href' => 'https://example.com/nda.docx',
+                'modified' => '02.01.2026 10:00',
+                'size' => 2048,
+                'id' => 'file-nda',
+            ]],
+        ]);
     });
 
     actingAs($user);
@@ -396,7 +395,7 @@ it('zeigt den hinweis zur microsoft-anmeldung wenn der delegated token fehlt', f
         $mock->shouldReceive('listShares')
             ->andThrow(MicrosoftDelegatedTokenMissingException::missingRefreshToken());
         $mock->shouldReceive('quota')->never();
-        $mock->shouldReceive('listFiles')->never();
+        $mock->shouldReceive('listFilesForShares')->never();
     });
 
     actingAs($user);
@@ -426,7 +425,7 @@ it('pollt dateien nur bei freigaben mit gast-upload', function (): void {
             ]),
         ]);
         $mock->shouldReceive('quota')->andReturn(null);
-        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('listFilesForShares')->andReturn([]);
     });
 
     actingAs($user);
@@ -455,7 +454,7 @@ it('pollt nicht wenn keine gast-upload-freigabe existiert', function (): void {
             ]),
         ]);
         $mock->shouldReceive('quota')->andReturn(null);
-        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('listFilesForShares')->andReturn([]);
     });
 
     actingAs($user);
@@ -484,15 +483,15 @@ it('zeigt neue gast-dateien nach dem polling ohne seitenneuladen', function (): 
             ]),
         ]);
         $mock->shouldReceive('quota')->once()->andReturn(null);
-        $mock->shouldReceive('listFiles')->twice()->andReturn(
-            [],
-            [[
+        $mock->shouldReceive('listFilesForShares')->twice()->andReturn(
+            ['share-guest' => []],
+            ['share-guest' => [[
                 'file' => 'vom-gast.pdf',
                 'href' => 'https://example.com/vom-gast.pdf',
                 'modified' => '18.08.2026 10:25',
                 'size' => 2048,
                 'id' => 'file-guest-1',
-            ]],
+            ]]],
         );
     });
 
@@ -546,9 +545,9 @@ it('hebt nur seit seitenaufruf hinzugekommene dateien hervor', function (): void
             ]),
         ]);
         $mock->shouldReceive('quota')->once()->andReturn(null);
-        $mock->shouldReceive('listFiles')->twice()->andReturn(
-            [$existingFile],
-            [$existingFile, $newFile],
+        $mock->shouldReceive('listFilesForShares')->twice()->andReturn(
+            ['share-guest' => [$existingFile]],
+            ['share-guest' => [$existingFile, $newFile]],
         );
     });
 
@@ -593,7 +592,7 @@ it('nimmt das polling-intervall aus den appsettings', function (): void {
             ]),
         ]);
         $mock->shouldReceive('quota')->andReturn(null);
-        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('listFilesForShares')->andReturn([]);
     });
 
     actingAs($user);
@@ -627,7 +626,7 @@ it('deaktiviert polling wenn das intervall in den appsettings 0 ist', function (
             ]),
         ]);
         $mock->shouldReceive('quota')->andReturn(null);
-        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('listFilesForShares')->andReturn([]);
     });
 
     actingAs($user);
@@ -655,7 +654,7 @@ it('setzt den mail-betreff mit dem namen der freigabe', function (): void {
             ]),
         ]);
         $mock->shouldReceive('quota')->andReturn(null);
-        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('listFilesForShares')->andReturn([]);
         $mock->shouldReceive('previewShareMail')->once()->andReturn('<html></html>');
     });
 
@@ -684,7 +683,7 @@ it('schliesst das teilen-modal nach erfolgreichem mailversand', function (): voi
             ]),
         ]);
         $mock->shouldReceive('quota')->andReturn(null);
-        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('listFilesForShares')->andReturn([]);
         $mock->shouldReceive('previewShareMail')->andReturn('<html></html>');
         $mock->shouldReceive('sendShareMail')
             ->once()
@@ -721,7 +720,7 @@ it('laesst das teilen-modal bei validierungsfehlern geoeffnet', function (): voi
             ]),
         ]);
         $mock->shouldReceive('quota')->andReturn(null);
-        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('listFilesForShares')->andReturn([]);
         $mock->shouldReceive('previewShareMail')->andReturn('<html></html>');
         $mock->shouldReceive('sendShareMail')->never();
     });
@@ -807,7 +806,7 @@ it('bietet im upload-modal eine drag-and-drop-flaeche', function (): void {
             ]),
         ]);
         $mock->shouldReceive('quota')->andReturn(null);
-        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('listFilesForShares')->andReturn([]);
     });
 
     actingAs($user);
@@ -837,7 +836,7 @@ it('kann die ausgewaehlte upload-datei wieder entfernen', function (): void {
             ]),
         ]);
         $mock->shouldReceive('quota')->andReturn(null);
-        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('listFilesForShares')->andReturn([]);
     });
 
     actingAs($user);

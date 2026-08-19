@@ -101,17 +101,21 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
             $this->quota = $cloudshare->quota($user);
             $this->errorMessage = '';
             $this->needsMicrosoftLogin = false;
-
-            foreach ($this->shares as $share) {
-                $this->filesByShareId[$share['id']] = $cloudshare->listFiles($user, $share['name']);
-            }
+            $this->filesByShareId = $cloudshare->listFilesForShares($user, $this->shares);
 
             $this->pruneHighlightsToExistingFiles();
         } catch (MicrosoftDelegatedTokenMissingException $e) {
             $this->markMicrosoftLoginRequired($e);
         } catch (\Throwable $e) {
             $this->needsMicrosoftLogin = false;
-            $this->errorMessage = 'OneDrive konnte nicht geladen werden: '.$e->getMessage();
+            $detail = trim($e->getMessage());
+            if ($detail === '' && method_exists($e, 'getError')) {
+                $detail = trim((string) ($e->getError()?->getMessage() ?? ''));
+            }
+            if ($detail === '') {
+                $detail = class_basename($e);
+            }
+            $this->errorMessage = 'OneDrive konnte nicht geladen werden: '.$detail;
             $this->shares = [];
             $this->quota = null;
             $this->clearHighlights();
@@ -274,21 +278,37 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
         $user = Auth::user();
 
         try {
+            $writeableShares = collect($this->shares)
+                ->filter(fn (array $share): bool => (bool) ($share['writeable'] ?? false))
+                ->values()
+                ->all();
+
+            if ($writeableShares === []) {
+                return;
+            }
+
+            $previousByShareId = [];
+
+            foreach ($writeableShares as $share) {
+                $previousByShareId[$share['id']] = collect($this->filesByShareId[$share['id']] ?? [])
+                    ->pluck('id')
+                    ->filter(fn (mixed $id): bool => is_string($id) && $id !== '')
+                    ->values()
+                    ->all();
+            }
+
+            $filesByShareId = $cloudshare->listFilesForShares($user, $writeableShares, forceRefresh: true);
+
             foreach ($this->shares as $index => $share) {
                 if (! ($share['writeable'] ?? false)) {
                     continue;
                 }
 
-                $previousIds = collect($this->filesByShareId[$share['id']] ?? [])
-                    ->pluck('id')
-                    ->filter(fn (mixed $id): bool => is_string($id) && $id !== '')
-                    ->values()
-                    ->all();
-
-                $files = $cloudshare->listFiles($user, $share['name']);
+                $files = $filesByShareId[$share['id']] ?? [];
                 $this->filesByShareId[$share['id']] = $files;
                 $this->shares[$index]['file_count'] = count($files);
 
+                $previousIds = $previousByShareId[$share['id']] ?? [];
                 $arrivedIds = collect($files)
                     ->pluck('id')
                     ->filter(fn (mixed $id): bool => is_string($id) && $id !== '' && ! in_array($id, $previousIds, true) && ! in_array($id, $this->fileIdsSeenOnOpen, true))

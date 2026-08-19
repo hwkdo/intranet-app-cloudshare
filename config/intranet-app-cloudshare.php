@@ -12,6 +12,9 @@ return [
     /** Maximale Upload-Größe in Kilobyte (Graph Simple Upload ~250 MB). */
     'max_upload_kb' => (int) env('CLOUDSHARE_MAX_UPLOAD_KB', 256000),
 
+    /** Kurzzeit-Cache für Graph-Listen (Sekunden). 0 deaktiviert den Cache. */
+    'graph_cache_seconds' => (int) env('CLOUDSHARE_GRAPH_CACHE_SECONDS', 60),
+
     'roles' => [
         'admin' => [
             'name' => 'App-Cloudshare-Admin',

@@ -15,6 +15,7 @@ use Hwkdo\IntranetAppCloudshare\Services\CloudshareService;
 use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
 use Hwkdo\MsGraphLaravel\Interfaces\MsGraphDelegatedOneDriveFactoryInterface;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
@@ -27,6 +28,8 @@ use function Pest\Laravel\mock;
 beforeEach(function (): void {
     Permission::findOrCreate('see-app-cloudshare', 'web');
     Mail::fake();
+    Cache::flush();
+    config(['intranet-app-cloudshare.graph_cache_seconds' => 0]);
 
     if (! Schema::hasTable('intranet_app_cloudshare_shares')) {
         Schema::create('intranet_app_cloudshare_shares', function ($table): void {
@@ -116,7 +119,10 @@ it('listet freigaben über den oneDrive service', function (): void {
 
     $oneDrive = mockCloudshareOneDrive();
     $oneDrive->shouldReceive('makeFolder')->once()->with(Mockery::type('string'), 'Cloudshare')->andReturn($folder);
-    $oneDrive->shouldReceive('getUserDriveContent')->once()->with(Mockery::type('string'), 'Cloudshare')->andReturn([$folder]);
+    $oneDrive->shouldReceive('getUserDriveContent')
+        ->once()
+        ->with(Mockery::type('string'), 'Cloudshare', ['expand' => ['permissions']])
+        ->andReturn([$folder]);
     $oneDrive->shouldReceive('getDriveItemPermissions')->once()->with(Mockery::type('string'), 'folder-1', 'anonymous')->andReturn(collect([$perm]));
 
     $shares = app(CloudshareService::class)->listShares($user);
@@ -851,4 +857,280 @@ it('ueberspringt benutzer ohne microsoft token beim automatischen loeschen', fun
         'skipped_users' => 1,
         'failed' => 0,
     ]);
+});
+
+it('findet freigaben ueber den db-eintrag ohne listShares', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    CloudshareShare::query()->create([
+        'user_id' => $user->id,
+        'onedrive_item_id' => 'folder-db',
+        'folder_name' => 'Aus-DB',
+        'password' => 'secret123',
+    ]);
+
+    $perm = cloudshareAnonymousPermission(
+        permId: 'perm-db',
+        hasPassword: true,
+        url: 'https://example.com/db-share',
+    );
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('getDriveItemPermissions')
+        ->once()
+        ->with(Mockery::type('string'), 'folder-db', 'anonymous')
+        ->andReturn(collect([$perm]));
+    $oneDrive->shouldNotReceive('makeFolder');
+    $oneDrive->shouldNotReceive('getUserDriveContent');
+
+    $share = app(CloudshareService::class)->findShare($user, 'folder-db');
+
+    expect($share)->not->toBeNull()
+        ->and($share['id'])->toBe('folder-db')
+        ->and($share['name'])->toBe('Aus-DB')
+        ->and($share['url'])->toBe('https://example.com/db-share')
+        ->and($share['has_stored_password'])->toBeTrue();
+});
+
+it('faellt bei findShare ohne db-eintrag auf graph zurueck', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    $folder = cloudshareGraphShareFolder('folder-graph', 'NurGraph');
+    $perm = cloudshareAnonymousPermission(url: 'https://example.com/graph-share');
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('makeFolder')->once()->andReturn($folder);
+    $oneDrive->shouldReceive('getUserDriveContent')
+        ->once()
+        ->with(Mockery::type('string'), 'Cloudshare', ['expand' => ['permissions']])
+        ->andReturn([$folder]);
+    $oneDrive->shouldReceive('getDriveItemPermissions')->once()->andReturn(collect([$perm]));
+
+    $share = app(CloudshareService::class)->findShare($user, 'folder-graph');
+
+    expect($share)->not->toBeNull()
+        ->and($share['id'])->toBe('folder-graph')
+        ->and($share['name'])->toBe('NurGraph');
+});
+
+it('faellt bei nicht unterstuetztem permissions-expand auf einzelabruf zurueck', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    $perm = cloudshareAnonymousPermission(url: 'https://example.com/fallback');
+    $folder = cloudshareGraphShareFolder('folder-fallback', 'Fallback');
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('makeFolder')->once()->andReturn($folder);
+    $oneDrive->shouldReceive('getUserDriveContent')
+        ->once()
+        ->with(Mockery::type('string'), 'Cloudshare', ['expand' => ['permissions']])
+        ->andThrow(new RuntimeException('Operation not supported'));
+    $oneDrive->shouldReceive('getUserDriveContent')
+        ->once()
+        ->with(Mockery::type('string'), 'Cloudshare')
+        ->andReturn([$folder]);
+    $oneDrive->shouldReceive('getDriveItemPermissions')
+        ->once()
+        ->with(Mockery::type('string'), 'folder-fallback', 'anonymous')
+        ->andReturn(collect([$perm]));
+
+    $shares = app(CloudshareService::class)->listShares($user);
+
+    expect($shares)->toHaveCount(1)
+        ->and($shares[0]['url'])->toBe('https://example.com/fallback');
+});
+
+it('nutzt expandierte permissions ohne getDriveItemPermissions', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    $perm = cloudshareAnonymousPermission(url: 'https://example.com/expanded');
+    $folderFacet = Mockery::mock();
+    $folderFacet->shouldReceive('getChildCount')->andReturn(1);
+
+    $folder = Mockery::mock();
+    $folder->shouldReceive('getFolder')->andReturn($folderFacet);
+    $folder->shouldReceive('getShared')->andReturn((object) []);
+    $folder->shouldReceive('getId')->andReturn('folder-expand');
+    $folder->shouldReceive('getName')->andReturn('Expanded');
+    $folder->shouldReceive('getCreatedDateTime')->andReturn(new DateTimeImmutable('2026-08-18 12:00:00'));
+    $folder->shouldReceive('getFileSystemInfo')->andReturn(null);
+    $folder->shouldReceive('getPermissions')->andReturn([$perm]);
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('makeFolder')->once()->andReturn($folder);
+    $oneDrive->shouldReceive('getUserDriveContent')
+        ->once()
+        ->with(Mockery::type('string'), 'Cloudshare', ['expand' => ['permissions']])
+        ->andReturn([$folder]);
+    $oneDrive->shouldNotReceive('getDriveItemPermissions');
+
+    $shares = app(CloudshareService::class)->listShares($user);
+
+    expect($shares)->toHaveCount(1)
+        ->and($shares[0]['url'])->toBe('https://example.com/expanded')
+        ->and($shares[0]['file_count'])->toBe(1);
+});
+
+it('laedt dateien fuer mehrere freigaben per batch', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    $fileA = Mockery::mock();
+    $fileA->shouldReceive('getName')->andReturn('a.pdf');
+    $fileA->shouldReceive('getWebUrl')->andReturn('https://example.com/a.pdf');
+    $fileA->shouldReceive('getLastModifiedDateTime')->andReturn(null);
+    $fileA->shouldReceive('getSize')->andReturn(10);
+    $fileA->shouldReceive('getId')->andReturn('file-a');
+
+    $fileB = Mockery::mock();
+    $fileB->shouldReceive('getName')->andReturn('b.pdf');
+    $fileB->shouldReceive('getWebUrl')->andReturn('https://example.com/b.pdf');
+    $fileB->shouldReceive('getLastModifiedDateTime')->andReturn(null);
+    $fileB->shouldReceive('getSize')->andReturn(20);
+    $fileB->shouldReceive('getId')->andReturn('file-b');
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('batchGetUserDriveContents')
+        ->once()
+        ->with(Mockery::type('string'), ['Cloudshare/A', 'Cloudshare/B'])
+        ->andReturn([
+            'Cloudshare/A' => [$fileA],
+            'Cloudshare/B' => [$fileB],
+        ]);
+    $oneDrive->shouldNotReceive('getUserDriveContent');
+
+    $result = app(CloudshareService::class)->listFilesForShares($user, [
+        ['id' => 'share-a', 'name' => 'A'],
+        ['id' => 'share-b', 'name' => 'B'],
+    ]);
+
+    expect($result)->toHaveKeys(['share-a', 'share-b'])
+        ->and($result['share-a'][0]['file'])->toBe('a.pdf')
+        ->and($result['share-b'][0]['file'])->toBe('b.pdf');
+});
+
+it('zeigt neue freigaben sofort trotz cache', function (): void {
+    config(['intranet-app-cloudshare.graph_cache_seconds' => 60]);
+    $user = cloudshareUser();
+    actingAs($user);
+
+    $existing = cloudshareGraphShareFolder('folder-old', 'Alt');
+    $folderFacet = Mockery::mock();
+    $folderFacet->shouldReceive('getChildCount')->andReturn(0);
+
+    $createdFolder = Mockery::mock();
+    $createdFolder->shouldReceive('getId')->andReturn('folder-new');
+    $createdFolder->shouldReceive('getName')->andReturn('Neu');
+    $createdFolder->shouldReceive('getFileSystemInfo')->andReturn(null);
+    $createdFolder->shouldReceive('getFolder')->andReturn($folderFacet);
+    $createdFolder->shouldReceive('getShared')->andReturn((object) []);
+    $createdFolder->shouldReceive('getCreatedDateTime')->andReturn(now());
+    $createdFolder->shouldReceive('getPermissions')->andReturn(null);
+
+    $perm = cloudshareAnonymousPermission(url: 'https://example.com/old');
+    $permNew = cloudshareAnonymousPermission(url: 'https://example.com/new', hasPassword: true);
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('makeFolder')->andReturnUsing(
+        fn (string $upn, string $path): mixed => str_contains($path, 'Neu') ? $createdFolder : $existing,
+    );
+    $oneDrive->shouldReceive('getUserDriveContent')
+        ->twice()
+        ->with(Mockery::type('string'), 'Cloudshare', ['expand' => ['permissions']])
+        ->andReturn([$existing], [$existing, $createdFolder]);
+    $oneDrive->shouldReceive('getDriveItemPermissions')->andReturn(
+        collect([$perm]),
+        collect([$permNew]),
+        collect([$perm]),
+        collect([$permNew]),
+    );
+    $oneDrive->shouldReceive('shareReadOnly')
+        ->once()
+        ->andReturn('https://example.com/new');
+
+    $service = app(CloudshareService::class);
+    $before = $service->listShares($user);
+    expect($before)->toHaveCount(1);
+
+    $created = $service->createShare($user, [
+        'name' => 'Neu',
+        'password' => 'secret123',
+        'expires_at' => now()->addDay()->toDateString(),
+        'guest_upload' => false,
+    ]);
+
+    expect($created['id'])->toBe('folder-new');
+
+    $after = $service->listShares($user);
+    expect(array_column($after, 'id'))->toContain('folder-new');
+});
+
+it('umgeht den datei-cache bei forceRefresh fuer polling', function (): void {
+    config(['intranet-app-cloudshare.graph_cache_seconds' => 60]);
+    $user = cloudshareUser();
+    actingAs($user);
+
+    CloudshareShare::query()->create([
+        'user_id' => $user->id,
+        'onedrive_item_id' => 'share-poll',
+        'folder_name' => 'Poll',
+        'password' => null,
+    ]);
+
+    $empty = [];
+    $withFile = Mockery::mock();
+    $withFile->shouldReceive('getName')->andReturn('gast.pdf');
+    $withFile->shouldReceive('getWebUrl')->andReturn('https://example.com/gast.pdf');
+    $withFile->shouldReceive('getLastModifiedDateTime')->andReturn(null);
+    $withFile->shouldReceive('getSize')->andReturn(1);
+    $withFile->shouldReceive('getId')->andReturn('file-gast');
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('getUserDriveContent')
+        ->twice()
+        ->with(Mockery::type('string'), 'Cloudshare/Poll')
+        ->andReturn($empty, [$withFile]);
+
+    $service = app(CloudshareService::class);
+    expect($service->listFiles($user, 'Poll'))->toBe([]);
+    expect($service->listFiles($user, 'Poll'))->toBe([]); // cache hit
+    expect($service->listFiles($user, 'Poll', forceRefresh: true)[0]['file'])->toBe('gast.pdf');
+});
+
+it('zeigt neu hochgeladene dateien sofort trotz cache', function (): void {
+    config(['intranet-app-cloudshare.graph_cache_seconds' => 60]);
+    $user = cloudshareUser();
+    actingAs($user);
+
+    CloudshareShare::query()->create([
+        'user_id' => $user->id,
+        'onedrive_item_id' => 'share-upload',
+        'folder_name' => 'Upload',
+        'password' => null,
+    ]);
+
+    $uploaded = Mockery::mock();
+    $uploaded->shouldReceive('getName')->andReturn('neu.pdf');
+    $uploaded->shouldReceive('getWebUrl')->andReturn('https://example.com/neu.pdf');
+    $uploaded->shouldReceive('getLastModifiedDateTime')->andReturn(null);
+    $uploaded->shouldReceive('getSize')->andReturn(42);
+    $uploaded->shouldReceive('getId')->andReturn('file-neu');
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('getUserDriveContent')
+        ->twice()
+        ->with(Mockery::type('string'), 'Cloudshare/Upload')
+        ->andReturn([], [$uploaded]);
+    $oneDrive->shouldReceive('uploadItemToUserDrive')->once()->andReturn(true);
+
+    $service = app(CloudshareService::class);
+    expect($service->listFiles($user, 'Upload'))->toBe([]);
+
+    $service->uploadFile($user, 'Upload', '/tmp/fake', 'neu.pdf');
+
+    expect($service->listFiles($user, 'Upload')[0]['file'])->toBe('neu.pdf');
 });

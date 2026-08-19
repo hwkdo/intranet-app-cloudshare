@@ -149,7 +149,7 @@ it('hebt bald ablaufende und abgelaufene freigaben in der liste hervor', functio
             ]),
         ]);
         $mock->shouldReceive('quota')->andReturn(null);
-        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('listFilesForShares')->andReturn([]);
     });
 
     actingAs($user);
@@ -277,7 +277,7 @@ it('verlaengert die gueltigkeit einer abgelaufenen freigabe in der liste', funct
             ]),
         ]);
         $mock->shouldReceive('quota')->andReturn(null);
-        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('listFilesForShares')->andReturn([]);
         $mock->shouldReceive('extendShareExpiration')
             ->once()
             ->withArgs(function (mixed $authUser, string $shareId, string $expiresAt): bool {
@@ -320,7 +320,7 @@ it('lehnt verlaengerung auf heute im formular ab', function (): void {
             ]),
         ]);
         $mock->shouldReceive('quota')->andReturn(null);
-        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('listFilesForShares')->andReturn([]);
         $mock->shouldReceive('extendShareExpiration')->never();
     });
 
@@ -352,7 +352,7 @@ it('oeffnet das verlaengern-modal nicht fuer spaeter ablaufende freigaben', func
             ]),
         ]);
         $mock->shouldReceive('quota')->andReturn(null);
-        $mock->shouldReceive('listFiles')->andReturn([]);
+        $mock->shouldReceive('listFilesForShares')->andReturn([]);
     });
 
     actingAs($user);

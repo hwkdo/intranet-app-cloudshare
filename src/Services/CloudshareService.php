@@ -11,6 +11,7 @@ use Hwkdo\IntranetAppCloudshare\Mail\CloudsharePasswordSendMail;
 use Hwkdo\IntranetAppCloudshare\Mail\CloudshareSharedMail;
 use Hwkdo\IntranetAppCloudshare\Models\CloudshareShare;
 use Hwkdo\IntranetAppCloudshare\Models\IntranetAppCloudshareSettings;
+use Hwkdo\IntranetAppCloudshare\Support\CloudshareGraphCache;
 use Hwkdo\IntranetAppCloudshare\Support\CloudshareShareExpiration;
 use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
 use Hwkdo\MsGraphLaravel\Interfaces\MsGraphDelegatedOneDriveFactoryInterface;
@@ -18,6 +19,7 @@ use Hwkdo\MsGraphLaravel\Interfaces\MsGraphOneDriveServiceInterface;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use InvalidArgumentException;
@@ -26,48 +28,24 @@ use Throwable;
 
 class CloudshareService implements CloudshareServiceInterface
 {
+    protected ?MsGraphOneDriveServiceInterface $cachedDrive = null;
+
+    protected int|string|null $cachedDriveUserId = null;
+
     public function __construct(
         protected MsGraphDelegatedOneDriveFactoryInterface $oneDriveFactory,
+        protected CloudshareGraphCache $graphCache = new CloudshareGraphCache,
     ) {}
 
-    public function listShares(Authenticatable $user): array
+    public function listShares(Authenticatable $user, bool $forceRefresh = false): array
     {
-        $upn = $this->upn($user);
-        $root = $this->rootFolder();
-        $oneDrive = $this->driveFor($user);
+        $userId = $user->getAuthIdentifier();
 
-        $oneDrive->makeFolder($upn, $root);
-
-        $items = $oneDrive->getUserDriveContent($upn, $root) ?? [];
-
-        $shares = collect($items)->filter(function ($item): bool {
-            return (bool) $item->getFolder() && (bool) $item->getShared();
-        });
-
-        $storedByItemId = CloudshareShare::query()
-            ->where('user_id', $user->getAuthIdentifier())
-            ->get()
-            ->keyBy('onedrive_item_id');
-
-        $result = [];
-
-        foreach ($shares as $share) {
-            $createdAt = $this->shareCreatedAt($share);
-            $shareData = $this->mapShare($share, $upn, $storedByItemId, $oneDrive, $createdAt);
-
-            if ($shareData !== null) {
-                $result[] = [
-                    'share' => $shareData,
-                    'created_at' => $createdAt,
-                ];
-            }
-        }
-
-        return collect($result)
-            ->sortByDesc(fn (array $item): int => $item['created_at']?->getTimestamp() ?? 0)
-            ->pluck('share')
-            ->values()
-            ->all();
+        return $this->graphCache->remember(
+            $this->graphCache->sharesKey($userId),
+            fn (): array => $this->fetchSharesFromGraph($user),
+            $forceRefresh,
+        );
     }
 
     public function createShare(Authenticatable $user, array $data): array
@@ -118,6 +96,8 @@ class CloudshareService implements CloudshareServiceInterface
             ],
         );
 
+        $this->forgetUserGraphCache($user, $folderId);
+
         $storedByItemId = CloudshareShare::query()
             ->where('user_id', $user->getAuthIdentifier())
             ->get()
@@ -146,13 +126,20 @@ class CloudshareService implements CloudshareServiceInterface
 
     public function findShare(Authenticatable $user, string $id): ?array
     {
-        foreach ($this->listShares($user) as $share) {
-            if ($share['id'] === $id) {
-                return $share;
+        $stored = CloudshareShare::query()
+            ->where('user_id', $user->getAuthIdentifier())
+            ->where('onedrive_item_id', $id)
+            ->first();
+
+        if ($stored !== null) {
+            $hydrated = $this->findShareFromStoredRecord($user, $stored);
+
+            if ($hydrated !== null) {
+                return $hydrated;
             }
         }
 
-        return null;
+        return $this->findShareViaGraph($user, $id);
     }
 
     public function extendShareExpiration(Authenticatable $user, string $shareId, string $expiresAt): array
@@ -188,6 +175,8 @@ class CloudshareService implements CloudshareServiceInterface
 
         $this->applyShareExpiration($user, $oneDrive, $upn, $shareId, $expiration);
 
+        $this->forgetUserGraphCache($user);
+
         $storedByItemId = CloudshareShare::query()
             ->where('user_id', $user->getAuthIdentifier())
             ->get()
@@ -202,27 +191,83 @@ class CloudshareService implements CloudshareServiceInterface
         return $shareData;
     }
 
-    public function listFiles(Authenticatable $user, string $folderName): array
+    public function listFiles(Authenticatable $user, string $folderName, bool $forceRefresh = false): array
     {
-        $upn = $this->upn($user);
-        $path = $this->rootFolder().'/'.$folderName;
-        $items = $this->driveFor($user)->getUserDriveContent($upn, $path) ?? [];
+        return $this->graphCache->remember(
+            $this->filesCacheKey($user, $folderName),
+            fn (): array => $this->fetchFilesFromGraph($user, $folderName),
+            $forceRefresh,
+        );
+    }
 
-        $files = [];
-
-        foreach ($items as $item) {
-            $modified = $item->getLastModifiedDateTime();
-
-            $files[] = [
-                'file' => $item->getName(),
-                'href' => $item->getWebUrl(),
-                'modified' => $modified ? $this->formatAppDateTime($modified, 'd.m.Y H:i') : '',
-                'size' => $item->getSize() ?? 0,
-                'id' => $item->getId(),
-            ];
+    /**
+     * @param  list<array{id: string, name: string}>  $shares
+     * @return array<string, list<array{file: string, href: string, modified: string, size: int|string, id: string}>>
+     */
+    public function listFilesForShares(Authenticatable $user, array $shares, bool $forceRefresh = false): array
+    {
+        if ($shares === []) {
+            return [];
         }
 
-        return $files;
+        $userId = $user->getAuthIdentifier();
+        $result = [];
+        $missing = [];
+
+        foreach ($shares as $share) {
+            $shareId = (string) ($share['id'] ?? '');
+            $folderName = (string) ($share['name'] ?? '');
+
+            if ($shareId === '' || $folderName === '') {
+                continue;
+            }
+
+            if (! $forceRefresh && $this->graphCache->enabled()) {
+                $cached = Cache::get($this->graphCache->filesKey($userId, $shareId));
+
+                if (is_array($cached)) {
+                    $result[$shareId] = $cached;
+
+                    continue;
+                }
+            }
+
+            $missing[] = $share;
+        }
+
+        if ($missing === []) {
+            return $result;
+        }
+
+        $upn = $this->upn($user);
+        $root = $this->rootFolder();
+        $oneDrive = $this->driveFor($user);
+        $paths = [];
+        $shareByPath = [];
+
+        foreach ($missing as $share) {
+            $path = $root.'/'.$share['name'];
+            $paths[] = $path;
+            $shareByPath[$path] = $share;
+        }
+
+        $contents = $oneDrive->batchGetUserDriveContents($upn, $paths);
+
+        foreach ($shareByPath as $path => $share) {
+            $shareId = (string) $share['id'];
+            $files = $this->mapDriveItemsToFiles($contents[$path] ?? []);
+            $result[$shareId] = $files;
+
+            if ($this->graphCache->enabled()) {
+                Cache::put(
+                    $this->graphCache->filesKey($userId, $shareId),
+                    $files,
+                    $this->graphCache->ttl(),
+                );
+            }
+        }
+
+        return $result;
     }
 
     public function uploadFile(Authenticatable $user, string $folderName, string $localPath, string $originalFilename): mixed
@@ -230,7 +275,12 @@ class CloudshareService implements CloudshareServiceInterface
         $upn = $this->upn($user);
         $subdir = $this->rootFolder().'/'.$folderName;
 
-        return $this->driveFor($user)->uploadItemToUserDrive($upn, $originalFilename, $localPath, $subdir);
+        $result = $this->driveFor($user)->uploadItemToUserDrive($upn, $originalFilename, $localPath, $subdir);
+
+        $this->forgetUserGraphCache($user, $this->shareIdForFolderName($user, $folderName));
+        Cache::forget($this->filesCacheKey($user, $folderName));
+
+        return $result;
     }
 
     public function deleteItem(Authenticatable $user, string $itemId): mixed
@@ -245,6 +295,8 @@ class CloudshareService implements CloudshareServiceInterface
             ->where('user_id', $user->getAuthIdentifier())
             ->where('onedrive_item_id', $itemId)
             ->delete();
+
+        $this->forgetUserGraphCache($user, $itemId);
 
         return $result;
     }
@@ -265,7 +317,7 @@ class CloudshareService implements CloudshareServiceInterface
             }
 
             try {
-                $shares = $this->listShares($user);
+                $shares = $this->listShares($user, forceRefresh: true);
             } catch (MicrosoftDelegatedTokenMissingException) {
                 $skippedUsers++;
 
@@ -302,6 +354,8 @@ class CloudshareService implements CloudshareServiceInterface
                     ]);
                 }
             }
+
+            $this->forgetUserGraphCache($user);
         }
 
         return [
@@ -311,31 +365,39 @@ class CloudshareService implements CloudshareServiceInterface
         ];
     }
 
-    public function quota(Authenticatable $user): ?array
+    public function quota(Authenticatable $user, bool $forceRefresh = false): ?array
     {
-        $upn = $this->upn($user);
-        $drive = $this->driveFor($user)->getUserDrive($upn);
+        $userId = $user->getAuthIdentifier();
 
-        if (! $drive) {
-            return null;
-        }
+        return $this->graphCache->remember(
+            $this->graphCache->quotaKey($userId),
+            function () use ($user): ?array {
+                $upn = $this->upn($user);
+                $drive = $this->driveFor($user)->getUserDrive($upn);
 
-        $quota = $drive->getQuota();
+                if (! $drive) {
+                    return null;
+                }
 
-        if (! $quota) {
-            return null;
-        }
+                $quota = $drive->getQuota();
 
-        $total = $quota->getTotal() ?: 0;
-        $used = $quota->getUsed() ?: 0;
-        $remaining = $quota->getRemaining();
+                if (! $quota) {
+                    return null;
+                }
 
-        return [
-            'quota_free' => $remaining,
-            'quota_used' => $used,
-            'quota_total' => $total,
-            'quota_relative' => $total > 0 ? ($used / $total) * 100 : 0.0,
-        ];
+                $total = $quota->getTotal() ?: 0;
+                $used = $quota->getUsed() ?: 0;
+                $remaining = $quota->getRemaining();
+
+                return [
+                    'quota_free' => $remaining,
+                    'quota_used' => $used,
+                    'quota_total' => $total,
+                    'quota_relative' => $total > 0 ? ($used / $total) * 100 : 0.0,
+                ];
+            },
+            $forceRefresh,
+        );
     }
 
     public function previewShareMail(Authenticatable $user, array $share, string $subject): string
@@ -435,9 +497,264 @@ class CloudshareService implements CloudshareServiceInterface
         }
     }
 
+    /**
+     * @return list<array{
+     *     name: string,
+     *     id: string,
+     *     url: string,
+     *     created_at: string,
+     *     password: bool,
+     *     has_stored_password: bool,
+     *     expiration: ?string,
+     *     writeable: bool,
+     *     file_count: int
+     * }>
+     */
+    protected function fetchSharesFromGraph(Authenticatable $user): array
+    {
+        $upn = $this->upn($user);
+        $root = $this->rootFolder();
+        $oneDrive = $this->driveFor($user);
+
+        $oneDrive->makeFolder($upn, $root);
+
+        $items = $this->listShareDriveItems($oneDrive, $upn, $root);
+
+        $shares = collect($items)->filter(function ($item): bool {
+            return (bool) $item->getFolder() && (bool) $item->getShared();
+        });
+
+        $storedByItemId = CloudshareShare::query()
+            ->where('user_id', $user->getAuthIdentifier())
+            ->get()
+            ->keyBy('onedrive_item_id');
+
+        $result = [];
+
+        foreach ($shares as $share) {
+            $createdAt = $this->shareCreatedAt($share);
+            $shareData = $this->mapShare($share, $upn, $storedByItemId, $oneDrive, $createdAt);
+
+            if ($shareData !== null) {
+                $result[] = [
+                    'share' => $shareData,
+                    'created_at' => $createdAt,
+                ];
+            }
+        }
+
+        return collect($result)
+            ->sortByDesc(fn (array $item): int => $item['created_at']?->getTimestamp() ?? 0)
+            ->pluck('share')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Graph unterstützt $expand=permissions beim Listen von Kindern in manchen Tenants nicht
+     * (OData: notSupported / „Operation not supported“). Dann Fallback ohne Expand.
+     *
+     * @return list<mixed>
+     */
+    protected function listShareDriveItems(MsGraphOneDriveServiceInterface $oneDrive, string $upn, string $root): array
+    {
+        try {
+            return $oneDrive->getUserDriveContent($upn, $root, ['expand' => ['permissions']]) ?? [];
+        } catch (Throwable) {
+            return $oneDrive->getUserDriveContent($upn, $root) ?? [];
+        }
+    }
+
+    /**
+     * @return list<array{file: string, href: string, modified: string, size: int|string, id: string}>
+     */
+    protected function fetchFilesFromGraph(Authenticatable $user, string $folderName): array
+    {
+        $upn = $this->upn($user);
+        $path = $this->rootFolder().'/'.$folderName;
+        $items = $this->driveFor($user)->getUserDriveContent($upn, $path) ?? [];
+
+        return $this->mapDriveItemsToFiles($items);
+    }
+
+    /**
+     * @param  list<object>|array<int, mixed>  $items
+     * @return list<array{file: string, href: string, modified: string, size: int|string, id: string}>
+     */
+    protected function mapDriveItemsToFiles(array $items): array
+    {
+        $files = [];
+
+        foreach ($items as $item) {
+            if (! is_object($item)) {
+                continue;
+            }
+
+            $modified = method_exists($item, 'getLastModifiedDateTime')
+                ? $item->getLastModifiedDateTime()
+                : null;
+
+            $files[] = [
+                'file' => (string) (method_exists($item, 'getName') ? $item->getName() : ''),
+                'href' => (string) (method_exists($item, 'getWebUrl') ? ($item->getWebUrl() ?? '') : ''),
+                'modified' => $modified ? $this->formatAppDateTime($modified, 'd.m.Y H:i') : '',
+                'size' => method_exists($item, 'getSize') ? ($item->getSize() ?? 0) : 0,
+                'id' => (string) (method_exists($item, 'getId') ? $item->getId() : ''),
+            ];
+        }
+
+        return $files;
+    }
+
+    /**
+     * @return array{
+     *     name: string,
+     *     id: string,
+     *     url: string,
+     *     created_at: string,
+     *     password: bool,
+     *     has_stored_password: bool,
+     *     expiration: ?string,
+     *     writeable: bool,
+     *     file_count: int
+     * }|null
+     */
+    protected function findShareFromStoredRecord(Authenticatable $user, CloudshareShare $stored): ?array
+    {
+        $upn = $this->upn($user);
+        $oneDrive = $this->driveFor($user);
+        $storedByItemId = collect([$stored->onedrive_item_id => $stored]);
+
+        $folder = $this->storedShareDriveItemStub($stored);
+
+        try {
+            return $this->mapShare($folder, $upn, $storedByItemId, $oneDrive, $stored->created_at);
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @return array{
+     *     name: string,
+     *     id: string,
+     *     url: string,
+     *     created_at: string,
+     *     password: bool,
+     *     has_stored_password: bool,
+     *     expiration: ?string,
+     *     writeable: bool,
+     *     file_count: int
+     * }|null
+     */
+    protected function findShareViaGraph(Authenticatable $user, string $id): ?array
+    {
+        foreach ($this->listShares($user, forceRefresh: true) as $share) {
+            if ($share['id'] === $id) {
+                return $share;
+            }
+        }
+
+        return null;
+    }
+
+    protected function storedShareDriveItemStub(CloudshareShare $stored): object
+    {
+        $folderFacet = new class
+        {
+            public function getChildCount(): int
+            {
+                return 0;
+            }
+        };
+
+        return new class($stored, $folderFacet)
+        {
+            public function __construct(
+                private CloudshareShare $stored,
+                private object $folderFacet,
+            ) {}
+
+            public function getId(): string
+            {
+                return (string) $this->stored->onedrive_item_id;
+            }
+
+            public function getName(): string
+            {
+                return (string) $this->stored->folder_name;
+            }
+
+            public function getFolder(): object
+            {
+                return $this->folderFacet;
+            }
+
+            public function getCreatedDateTime(): mixed
+            {
+                return $this->stored->created_at;
+            }
+
+            public function getFileSystemInfo(): null
+            {
+                return null;
+            }
+
+            public function getPermissions(): null
+            {
+                return null;
+            }
+        };
+    }
+
+    protected function shareIdForFolderName(Authenticatable $user, string $folderName): ?string
+    {
+        $stored = CloudshareShare::query()
+            ->where('user_id', $user->getAuthIdentifier())
+            ->where('folder_name', $folderName)
+            ->first();
+
+        return $stored?->onedrive_item_id;
+    }
+
+    protected function filesCacheKey(Authenticatable $user, string $folderName): string
+    {
+        $shareId = $this->shareIdForFolderName($user, $folderName);
+        $userId = $user->getAuthIdentifier();
+
+        if ($shareId !== null) {
+            return $this->graphCache->filesKey($userId, $shareId);
+        }
+
+        return 'cloudshare:files:'.$userId.':name:'.md5($folderName);
+    }
+
+    protected function forgetUserGraphCache(Authenticatable $user, ?string $extraShareId = null): void
+    {
+        $shareIds = CloudshareShare::query()
+            ->where('user_id', $user->getAuthIdentifier())
+            ->pluck('onedrive_item_id')
+            ->filter(fn (mixed $id): bool => is_string($id) && $id !== '')
+            ->values()
+            ->all();
+
+        if (is_string($extraShareId) && $extraShareId !== '') {
+            $shareIds[] = $extraShareId;
+        }
+
+        $this->graphCache->forgetUser($user->getAuthIdentifier(), $shareIds);
+    }
+
     protected function driveFor(Authenticatable $user): MsGraphOneDriveServiceInterface
     {
-        return $this->oneDriveFactory->forUser($user);
+        $userId = $user->getAuthIdentifier();
+
+        if ($this->cachedDrive === null || $this->cachedDriveUserId !== $userId) {
+            $this->cachedDrive = $this->oneDriveFactory->forUser($user);
+            $this->cachedDriveUserId = $userId;
+        }
+
+        return $this->cachedDrive;
     }
 
     protected function upn(Authenticatable $user): string
@@ -594,7 +911,7 @@ class CloudshareService implements CloudshareServiceInterface
      */
     protected function mapShare(mixed $share, string $upn, Collection $storedByItemId, MsGraphOneDriveServiceInterface $oneDrive, ?Carbon $createdAt = null): ?array
     {
-        $perms = $oneDrive->getDriveItemPermissions($upn, $share->getId(), 'anonymous');
+        $perms = $this->anonymousPermissionsForShare($share, $upn, $oneDrive);
         $perm = collect($perms)->first();
 
         if (! $perm || ! $perm->getLink()) {
@@ -625,6 +942,34 @@ class CloudshareService implements CloudshareServiceInterface
             'writeable' => in_array('write', $roles, true),
             'file_count' => $this->folderChildCount($share),
         ];
+    }
+
+    /**
+     * @return Collection<int, mixed>|list<mixed>
+     */
+    protected function anonymousPermissionsForShare(mixed $share, string $upn, MsGraphOneDriveServiceInterface $oneDrive): Collection|array
+    {
+        $expanded = [];
+
+        try {
+            if (is_object($share) && method_exists($share, 'getPermissions')) {
+                $expanded = $share->getPermissions() ?? [];
+            }
+        } catch (Throwable) {
+            $expanded = [];
+        }
+
+        if (is_array($expanded) && $expanded !== []) {
+            return collect($expanded)->filter(function ($perm): bool {
+                return is_object($perm)
+                    && method_exists($perm, 'getLink')
+                    && $perm->getLink()
+                    && method_exists($perm->getLink(), 'getScope')
+                    && $perm->getLink()->getScope() === 'anonymous';
+            })->values();
+        }
+
+        return $oneDrive->getDriveItemPermissions($upn, $share->getId(), 'anonymous');
     }
 
     /**
