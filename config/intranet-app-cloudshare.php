@@ -21,13 +21,14 @@ return [
             'permissions' => [
                 'see-app-cloudshare',
                 'manage-app-cloudshare',
-            ],
+            ],            
         ],
         'user' => [
             'name' => 'App-Cloudshare-Benutzer',
             'permissions' => [
                 'see-app-cloudshare',
             ],
+            'all_users' => true
         ],
     ],
 ];
