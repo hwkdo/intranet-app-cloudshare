@@ -778,15 +778,15 @@ it('zeigt in den benutzereinstellungen keinen anzeigemodus', function (): void {
         ->assertDontSee('Standard-Anzeigemodus');
 });
 
-it('lädt user settings auch wenn altes defaultViewMode in den daten steht', function (): void {
+it('lädt user settings auch wenn alte stub-felder in den daten stehen', function (): void {
     $settings = UserSettings::from([
         'defaultViewMode' => 'grid',
         'notificationsEnabled' => false,
     ]);
 
-    expect($settings->notificationsEnabled)->toBeFalse()
-        ->and($settings->expiringSoonDays)->toBe(7)
-        ->and($settings->toArray())->not->toHaveKey('defaultViewMode');
+    expect($settings->expiringSoonDays)->toBe(7)
+        ->and($settings->toArray())->not->toHaveKey('defaultViewMode')
+        ->and($settings->toArray())->not->toHaveKey('notificationsEnabled');
 });
 
 it('bietet im upload-modal eine drag-and-drop-flaeche', function (): void {
