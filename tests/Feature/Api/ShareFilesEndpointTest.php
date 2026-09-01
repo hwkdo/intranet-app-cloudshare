@@ -64,6 +64,23 @@ it('laedt eine datei in eine bestehende freigabe hoch', function (): void {
         ->assertJsonPath('file', 'test.pdf');
 });
 
+it('lehnt dateien ueber dem cloudshare-limit ab', function (): void {
+    config(['intranet-app-cloudshare.max_upload_kb' => 50]);
+
+    $user = User::factory()->create();
+    Passport::actingAs($user);
+
+    $file = UploadedFile::fake()->create('gross.pdf', 100);
+
+    $this->post('/api/cloudshare/shares/item-123/files', [
+        'file' => $file,
+    ], [
+        'Accept' => 'application/json',
+    ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors('file');
+});
+
 it('liefert 404 wenn dateien einer unbekannten freigabe gelesen werden', function (): void {
     $user = User::factory()->create();
     Passport::actingAs($user);

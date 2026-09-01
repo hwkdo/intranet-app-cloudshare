@@ -9,7 +9,10 @@ return [
 
     'root_folder' => env('CLOUDSHARE_ROOT_FOLDER', 'Cloudshare'),
 
-    /** Maximale Upload-Größe in Kilobyte (Graph Simple Upload ~250 MB). */
+    /**
+     * Maximale Upload-Größe in Kilobyte (Graph Simple Upload ~250 MB).
+     * Livewire (LIVEWIRE_MAX_UPLOAD_KB) und PHP/Nginx (Dockerfile PHP_POST_MAX_SIZE etc.) müssen mindestens so groß sein.
+     */
     'max_upload_kb' => (int) env('CLOUDSHARE_MAX_UPLOAD_KB', 256000),
 
     /** Kurzzeit-Cache für Graph-Listen (Sekunden). 0 deaktiviert den Cache. */
