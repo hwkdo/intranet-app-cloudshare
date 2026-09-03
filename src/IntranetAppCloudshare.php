@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Hwkdo\IntranetAppCloudshare;
 
+use Hwkdo\IntranetAppBase\Data\TourDefinition;
 use Hwkdo\IntranetAppBase\Interfaces\IntranetAppInterface;
 use Hwkdo\IntranetAppBase\Interfaces\ProvidesDashboardWidgetsInterface;
+use Hwkdo\IntranetAppBase\Interfaces\ProvidesToursInterface;
 use Hwkdo\IntranetAppCloudshare\Dashboard\CloudshareDashboardWidgetProvider;
 use Illuminate\Support\Collection;
 
-class IntranetAppCloudshare implements IntranetAppInterface, ProvidesDashboardWidgetsInterface
+class IntranetAppCloudshare implements IntranetAppInterface, ProvidesDashboardWidgetsInterface, ProvidesToursInterface
 {
     public static function app_name(): string
     {
@@ -55,6 +57,24 @@ class IntranetAppCloudshare implements IntranetAppInterface, ProvidesDashboardWi
     {
         return [
             CloudshareDashboardWidgetProvider::class,
+        ];
+    }
+
+    public static function tours(): array
+    {
+        return [
+            new TourDefinition(
+                key: 'cloudshare.index',
+                title: 'Cloud Share – Einstieg',
+                description: 'Freigabe anlegen, Dateien hochladen, per E-Mail teilen und wieder löschen – inkl. Beispieldaten für die Tour.',
+                group: 'app',
+                appIdentifier: self::identifier(),
+                appName: self::app_name(),
+                routeName: 'apps.cloudshare.index',
+                stepsModule: 'cloudshare/index',
+                sort: 100,
+                version: 1,
+            ),
         ];
     }
 }

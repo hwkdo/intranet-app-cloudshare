@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
+use Hwkdo\IntranetAppCloudshare\Http\Controllers\CloudshareTourDemoController;
 use Illuminate\Support\Facades\Route;
-
 
 Route::middleware(['web', 'auth', 'can:see-app-cloudshare'])->group(function (): void {
     Route::livewire('apps/cloudshare', 'intranet-app-cloudshare::apps.cloudshare.index')->name('apps.cloudshare.index');
@@ -11,6 +11,12 @@ Route::middleware(['web', 'auth', 'can:see-app-cloudshare'])->group(function ():
     Route::livewire('apps/cloudshare/settings/user', 'intranet-app-cloudshare::apps.cloudshare.settings.user')
         ->name('apps.cloudshare.settings.user');
     Route::livewire('apps/cloudshare/info', 'intranet-app-cloudshare::apps.cloudshare.info')->name('apps.cloudshare.info');
+
+    Route::post('apps/cloudshare/tour/demo/enable', [CloudshareTourDemoController::class, 'enable'])
+        ->name('apps.cloudshare.tour.demo.enable');
+
+    Route::post('apps/cloudshare/tour/demo/disable', [CloudshareTourDemoController::class, 'disable'])
+        ->name('apps.cloudshare.tour.demo.disable');
 });
 
 

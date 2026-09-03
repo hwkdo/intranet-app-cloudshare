@@ -6,6 +6,7 @@ use Hwkdo\IntranetAppCloudshare\Data\AppSettings;
 use Hwkdo\IntranetAppCloudshare\Mail\CloudshareSharedMail;
 use Hwkdo\IntranetAppCloudshare\Models\IntranetAppCloudshareSettings;
 use Hwkdo\IntranetAppCloudshare\Support\CloudshareShareExpiration;
+use Hwkdo\IntranetAppCloudshare\Support\CloudshareTourDemo;
 use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
 use Illuminate\Support\Facades\Auth;
 use Livewire\Attributes\Computed;
@@ -27,6 +28,14 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
 
     /** @var array<string, list<array{file: string, href: string, modified: string, size: int|string, id: string}>> */
     public array $filesByShareId = [];
+
+    public bool $tourDemo = false;
+
+    public string $tourDemoStepTitle = '';
+
+    public string $tourDemoStepText = '';
+
+    public bool $tourDemoShowBack = false;
 
     public bool $showCreateModal = false;
 
@@ -86,6 +95,7 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
     public function mount(): void
     {
         $this->hinweisText = $this->appSettings()->hinweisText;
+        $this->tourDemo = CloudshareTourDemo::isActive();
 
         $this->refreshData();
         $this->fileIdsSeenOnOpen = $this->currentFileIds();
@@ -93,6 +103,14 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
 
     public function refreshData(?CloudshareServiceInterface $cloudshare = null): void
     {
+        if (CloudshareTourDemo::isActive()) {
+            $this->tourDemo = true;
+            $this->applyTourDemoData();
+
+            return;
+        }
+
+        $this->tourDemo = false;
         $cloudshare ??= app(CloudshareServiceInterface::class);
         $user = Auth::user();
 
@@ -122,10 +140,129 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
         }
     }
 
+    public function enableTourDemo(): void
+    {
+        CloudshareTourDemo::enable();
+        $this->tourDemo = true;
+        $this->closeTourModals();
+        $this->applyTourDemoData();
+        $this->fileIdsSeenOnOpen = $this->currentFileIds();
+    }
+
+    public function disableTourDemo(): void
+    {
+        CloudshareTourDemo::disable();
+        $this->tourDemo = false;
+        $this->closeTourModals();
+        $this->refreshData();
+        $this->fileIdsSeenOnOpen = $this->currentFileIds();
+    }
+
+    public function openTourCreateModal(string $title = '', string $text = '', bool $showBack = false): void
+    {
+        $this->showUploadModal = false;
+        $this->showShareModal = false;
+        $this->showExtendModal = false;
+        $this->setTourDemoStep($title, $text, $showBack);
+        $this->openCreateModal();
+    }
+
+    public function openTourUploadModal(string $title = '', string $text = '', bool $showBack = false): void
+    {
+        if (! $this->tourDemo && ! CloudshareTourDemo::isActive()) {
+            return;
+        }
+
+        $this->showCreateModal = false;
+        $this->showShareModal = false;
+        $this->showExtendModal = false;
+        $this->setTourDemoStep($title, $text, $showBack);
+        $this->openUploadModal(CloudshareTourDemo::DEMO_SHARE_ID, CloudshareTourDemo::DEMO_SHARE_NAME);
+    }
+
+    public function openTourShareModal(string $title = '', string $text = '', bool $showBack = false): void
+    {
+        if (! $this->tourDemo && ! CloudshareTourDemo::isActive()) {
+            return;
+        }
+
+        $this->showCreateModal = false;
+        $this->showUploadModal = false;
+        $this->showExtendModal = false;
+
+        $share = CloudshareTourDemo::demoShare();
+        $this->shareIdForMail = CloudshareTourDemo::DEMO_SHARE_ID;
+        $this->shareMailSubject = CloudshareTourDemo::demoMailSubject();
+        $this->shareMailEmail = '';
+        $this->sendPasswordViaBitwarden = true;
+        $this->shareMailPreview = CloudshareTourDemo::demoMailPreview();
+        $this->resetErrorBag(['shareMailEmail', 'shareMailSubject', 'sendPasswordViaBitwarden']);
+        $this->setTourDemoStep($title, $text, $showBack);
+        $this->showShareModal = true;
+
+        if (! collect($this->shares)->contains(fn (array $item): bool => $item['id'] === $share['id'])) {
+            $this->applyTourDemoData();
+        }
+    }
+
+    public function setTourDemoStep(string $title = '', string $text = '', bool $showBack = false): void
+    {
+        $this->tourDemoStepTitle = $title;
+        $this->tourDemoStepText = $text;
+        $this->tourDemoShowBack = $showBack;
+    }
+
+    public function clearTourDemoStep(): void
+    {
+        $this->tourDemoStepTitle = '';
+        $this->tourDemoStepText = '';
+        $this->tourDemoShowBack = false;
+    }
+
+    public function closeTourModals(): void
+    {
+        $this->showCreateModal = false;
+        $this->showUploadModal = false;
+        $this->showShareModal = false;
+        $this->showExtendModal = false;
+        $this->uploadFile = null;
+        $this->clearTourDemoStep();
+        $this->resetCreateForm();
+        $this->resetExtendForm();
+        $this->resetErrorBag();
+    }
+
     public function openCreateModal(): void
     {
         $this->resetCreateForm();
         $this->showCreateModal = true;
+    }
+
+    protected function applyTourDemoData(): void
+    {
+        $share = CloudshareTourDemo::demoShare();
+        $this->shares = [$share];
+        $this->filesByShareId = [
+            CloudshareTourDemo::DEMO_SHARE_ID => CloudshareTourDemo::demoFiles(),
+        ];
+        $this->quota = CloudshareTourDemo::demoQuota();
+        $this->errorMessage = '';
+        $this->needsMicrosoftLogin = false;
+        $this->clearHighlights();
+    }
+
+    protected function guardTourDemoMutation(): bool
+    {
+        if (! $this->tourDemo && ! CloudshareTourDemo::isActive()) {
+            return false;
+        }
+
+        Flux::toast(
+            variant: 'warning',
+            text: 'In der Tour-Demo werden keine echten Aktionen ausgeführt.',
+        );
+
+        return true;
     }
 
     public function openExtendModal(string $shareId): void
@@ -147,6 +284,10 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
 
     public function extendShareExpiration(CloudshareServiceInterface $cloudshare): void
     {
+        if ($this->guardTourDemoMutation()) {
+            return;
+        }
+
         $this->validate([
             'extendShareId' => ['required', 'string'],
             'extendExpiresAt' => ['required', 'date', 'after:today'],
@@ -172,6 +313,10 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
 
     public function createShare(CloudshareServiceInterface $cloudshare): void
     {
+        if ($this->guardTourDemoMutation()) {
+            return;
+        }
+
         $this->validate([
             'newName' => ['required', 'string', 'max:200'],
             'newPassword' => ['nullable', 'string', 'min:8'],
@@ -231,6 +376,10 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
 
     public function uploadToShare(CloudshareServiceInterface $cloudshare): void
     {
+        if ($this->guardTourDemoMutation()) {
+            return;
+        }
+
         $maxKb = (int) config('intranet-app-cloudshare.max_upload_kb', 256000);
 
         $this->validate([
@@ -259,6 +408,10 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
 
     public function deleteItem(CloudshareServiceInterface $cloudshare, string $itemId): void
     {
+        if ($this->guardTourDemoMutation()) {
+            return;
+        }
+
         try {
             $cloudshare->deleteItem(Auth::user(), $itemId);
             $this->refreshData($cloudshare);
@@ -357,6 +510,10 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
 
     public function shouldPollGuestUploads(): bool
     {
+        if ($this->tourDemo || CloudshareTourDemo::isActive()) {
+            return false;
+        }
+
         if ($this->guestUploadPollSeconds() <= 0) {
             return false;
         }
@@ -388,6 +545,13 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
         $this->sendPasswordViaBitwarden = false;
         $this->resetErrorBag(['shareMailEmail', 'shareMailSubject', 'sendPasswordViaBitwarden']);
 
+        if (CloudshareTourDemo::isDemoShareId($shareId)) {
+            $this->shareMailPreview = CloudshareTourDemo::demoMailPreview();
+            $this->showShareModal = true;
+
+            return;
+        }
+
         try {
             $this->shareMailPreview = $cloudshare->previewShareMail(
                 Auth::user(),
@@ -408,6 +572,12 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
             return;
         }
 
+        if (CloudshareTourDemo::isDemoShareId($this->shareIdForMail)) {
+            $this->shareMailPreview = CloudshareTourDemo::demoMailPreview();
+
+            return;
+        }
+
         try {
             $this->shareMailPreview = app(CloudshareServiceInterface::class)->previewShareMail(
                 Auth::user(),
@@ -421,6 +591,10 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
 
     public function sendShareMail(CloudshareServiceInterface $cloudshare): void
     {
+        if ($this->guardTourDemoMutation()) {
+            return;
+        }
+
         $this->validate([
             'shareMailEmail' => ['required', 'email'],
             'shareMailSubject' => ['required', 'string', 'max:255'],
@@ -797,13 +971,27 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
 </div>
 @endplaceholder
 
-<div>
+<div data-tour="cloudshare-page">
     <x-intranet-app-cloudshare::cloudshare-layout heading="Cloud Share" subheading="Temporäre OneDrive-Freigaben für Externe">
+        @if ($tourDemo)
+            <flux:callout variant="secondary" icon="map" class="mb-4" data-tour="cloudshare-demo-banner">
+                <flux:callout.heading>Tour-Demo aktiv</flux:callout.heading>
+                <flux:callout.text>
+                    Die angezeigte Freigabe ist Beispieldaten für die Produkt-Tour und wird nicht in OneDrive gespeichert.
+                </flux:callout.text>
+                <x-slot:actions>
+                    <flux:button wire:click="disableTourDemo" size="sm" variant="ghost">
+                        Demo beenden
+                    </flux:button>
+                </x-slot:actions>
+            </flux:callout>
+        @endif
+
         <div class="space-y-6">
-            <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center justify-between gap-3" data-tour="cloudshare-toolbar">
                 <flux:heading size="lg">Freigaben</flux:heading>
                 <div class="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
-                    <div class="w-full sm:w-72">
+                    <div class="w-full sm:w-72" data-tour="cloudshare-search">
                         <flux:input
                             wire:model.live.debounce.300ms="search"
                             type="search"
@@ -814,7 +1002,13 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                             :disabled="$needsMicrosoftLogin || count($shares) === 0"
                         />
                     </div>
-                    <flux:button variant="primary" icon="plus" wire:click="openCreateModal" :disabled="$needsMicrosoftLogin">Neu</flux:button>
+                    <flux:button
+                        variant="primary"
+                        icon="plus"
+                        wire:click="openCreateModal"
+                        :disabled="$needsMicrosoftLogin"
+                        data-tour="cloudshare-new-button"
+                    >Neu</flux:button>
                 </div>
             </div>
 
@@ -829,7 +1023,7 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
             @endif
 
             @if ($needsMicrosoftLogin)
-                <flux:callout variant="warning" icon="exclamation-triangle">
+                <flux:callout variant="warning" icon="exclamation-triangle" data-tour="cloudshare-microsoft-login">
                     <flux:callout.heading>Microsoft-Anmeldung erforderlich</flux:callout.heading>
                     <flux:callout.text>
                         Cloud Share nutzt Ihr Microsoft-Konto für OneDrive-Freigaben.
@@ -892,6 +1086,7 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
 
             <div
                 class="space-y-4"
+                data-tour="cloudshare-list"
                 @if ($this->shouldPollGuestUploads())
                     wire:poll.{{ $this->guestUploadPollSeconds() }}s.visible="refreshGuestUploads"
                 @endif
@@ -901,10 +1096,14 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                 @endif
 
                 @foreach ($this->filteredShares as $share)
-                    <flux:card wire:key="share-{{ $share['id'] }}" class="glass-card">
+                    <div
+                        wire:key="share-{{ $share['id'] }}"
+                        @if ($loop->first) data-tour="cloudshare-first-share" @endif
+                    >
+                    <flux:card class="glass-card">
                         <flux:accordion transition>
                             <flux:accordion.item>
-                                <flux:accordion.heading>
+                                <flux:accordion.heading data-tour="cloudshare-share-heading">
                                     <div class="flex min-w-0 flex-1 flex-wrap items-start justify-between gap-3 pr-2">
                                         <div class="min-w-0 text-left">
                                             <flux:heading size="md">{{ $share['name'] }}</flux:heading>
@@ -919,7 +1118,7 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                                 </flux:accordion.heading>
 
                                 <flux:accordion.content>
-                                    <div class="space-y-4 pt-2">
+                                    <div class="space-y-4 pt-2" data-tour="cloudshare-share-actions">
                                         <div class="flex flex-wrap gap-2">
                                             @if (is_string($share['url']) && $share['url'] !== '')
                                                 <flux:button
@@ -942,11 +1141,23 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                                                 />
                                             @endif
                                             @if ($this->quotaRelative() < 90)
-                                                <flux:button size="sm" variant="primary" icon="arrow-up-tray" wire:click="openUploadModal('{{ $share['id'] }}', {{ \Illuminate\Support\Js::from($share['name']) }})">
+                                                <flux:button
+                                                    size="sm"
+                                                    variant="primary"
+                                                    icon="arrow-up-tray"
+                                                    wire:click="openUploadModal('{{ $share['id'] }}', {{ \Illuminate\Support\Js::from($share['name']) }})"
+                                                    data-tour="cloudshare-upload-button"
+                                                >
                                                     Hochladen
                                                 </flux:button>
                                             @endif
-                                            <flux:button size="sm" variant="ghost" icon="envelope" wire:click="openShareModal({{ \Illuminate\Support\Js::from($share['id']) }})">
+                                            <flux:button
+                                                size="sm"
+                                                variant="ghost"
+                                                icon="envelope"
+                                                wire:click="openShareModal({{ \Illuminate\Support\Js::from($share['id']) }})"
+                                                data-tour="cloudshare-share-button"
+                                            >
                                                 Teilen
                                             </flux:button>
                                             @if ($this->shareCanExtendExpiration($share))
@@ -965,12 +1176,13 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                                                 icon="trash"
                                                 wire:click="deleteItem({{ \Illuminate\Support\Js::from($share['id']) }})"
                                                 wire:confirm="Freigabe und alle Dateien wirklich löschen?"
+                                                data-tour="cloudshare-delete-button"
                                             >
                                                 Löschen
                                             </flux:button>
                                         </div>
 
-                                        <dl class="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-700 dark:border-zinc-700">
+                                        <dl class="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-700 dark:border-zinc-700" data-tour="cloudshare-share-properties">
                                             @foreach ([
                                                 ['label' => 'Passwortschutz', 'value' => $this->sharePasswordProtectionLabel($share), 'highlight' => null],
                                                 ['label' => 'Gültig bis', 'value' => $this->shareExpirationLabel($share), 'highlight' => $this->shareExpirationHighlight($share)],
@@ -989,7 +1201,7 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                                         </dl>
 
                                         @if (count($this->filesForShare($share['id'])) > 0)
-                                            <div>
+                                            <div data-tour="cloudshare-files">
                                                 <flux:heading size="sm" class="mb-2">Dateien</flux:heading>
                                                 <flux:table>
                                                     <flux:table.columns>
@@ -1039,19 +1251,44 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                             </flux:accordion.item>
                         </flux:accordion>
                     </flux:card>
+                    </div>
                 @endforeach
             </div>
         </div>
 
-        <flux:modal wire:model="showCreateModal" class="md:w-[32rem] space-y-6">
+        <flux:modal
+            wire:model="showCreateModal"
+            class="md:w-[32rem] space-y-6"
+            data-tour="cloudshare-create-modal"
+            :dismissible="! $tourDemo"
+            :escapable="! $tourDemo"
+            :closable="! $tourDemo"
+        >
+            @if ($tourDemo && $tourDemoStepText !== '')
+                <flux:callout variant="secondary" icon="map" data-tour="cloudshare-in-modal-tour">
+                    <flux:callout.heading>{{ $tourDemoStepTitle !== '' ? $tourDemoStepTitle : 'Tour' }}</flux:callout.heading>
+                    <flux:callout.text>{{ $tourDemoStepText }}</flux:callout.text>
+                    <x-slot:actions>
+                        @if ($tourDemoShowBack)
+                            <flux:button type="button" size="sm" variant="ghost" x-on:click="window.IntranetTours?.back?.()">
+                                Zurück
+                            </flux:button>
+                        @endif
+                        <flux:button type="button" size="sm" variant="primary" x-on:click="window.IntranetTours?.next?.()">
+                            Weiter
+                        </flux:button>
+                    </x-slot:actions>
+                </flux:callout>
+            @endif
+
             <div>
                 <flux:heading size="lg">Neue Freigabe</flux:heading>
                 <flux:text class="mt-1">Ordner in OneDrive anlegen und anonymen Link erzeugen.</flux:text>
             </div>
 
-            <form wire:submit="createShare" class="space-y-4">
-                <flux:input wire:model="newName" label="Name" required />
-                <flux:input wire:model="newPassword" label="Passwort" type="text" placeholder="Optional, mindestens 8 Zeichen" />
+            <form wire:submit="createShare" class="space-y-4" data-tour="cloudshare-create-form">
+                <flux:input wire:model="newName" label="Name" required data-tour="cloudshare-create-name" />
+                <flux:input wire:model="newPassword" label="Passwort" type="text" placeholder="Optional, mindestens 8 Zeichen" data-tour="cloudshare-create-password" />
                 <flux:input
                     wire:model="newExpiresAt"
                     label="Gültigkeit"
@@ -1059,13 +1296,18 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                     required
                     min="{{ now()->addDay()->toDateString() }}"
                     description="Die Freigabe endet um 00:00 Uhr am gewählten Tag."
+                    data-tour="cloudshare-create-expires"
                 />
                 <flux:error name="newExpiresAt" />
-                <flux:checkbox wire:model="newGuestUpload" label="Gast-Upload erlauben" />
+                <div data-tour="cloudshare-create-guest-upload">
+                    <flux:checkbox wire:model="newGuestUpload" label="Gast-Upload erlauben" />
+                </div>
 
                 <div class="flex justify-end gap-2">
-                    <flux:button type="button" variant="ghost" wire:click="$set('showCreateModal', false)">Abbrechen</flux:button>
-                    <flux:button type="submit" variant="primary">Absenden</flux:button>
+                    @unless ($tourDemo)
+                        <flux:button type="button" variant="ghost" wire:click="$set('showCreateModal', false)">Abbrechen</flux:button>
+                    @endunless
+                    <flux:button type="submit" variant="primary" data-tour="cloudshare-create-submit" :disabled="$tourDemo">Absenden</flux:button>
                 </div>
             </form>
         </flux:modal>
@@ -1096,14 +1338,38 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
             </form>
         </flux:modal>
 
-        <flux:modal wire:model="showUploadModal" class="md:w-[32rem] space-y-6">
+        <flux:modal
+            wire:model="showUploadModal"
+            class="md:w-[32rem] space-y-6"
+            data-tour="cloudshare-upload-modal"
+            :dismissible="! $tourDemo"
+            :escapable="! $tourDemo"
+            :closable="! $tourDemo"
+        >
+            @if ($tourDemo && $tourDemoStepText !== '')
+                <flux:callout variant="secondary" icon="map" data-tour="cloudshare-in-modal-tour">
+                    <flux:callout.heading>{{ $tourDemoStepTitle !== '' ? $tourDemoStepTitle : 'Tour' }}</flux:callout.heading>
+                    <flux:callout.text>{{ $tourDemoStepText }}</flux:callout.text>
+                    <x-slot:actions>
+                        @if ($tourDemoShowBack)
+                            <flux:button type="button" size="sm" variant="ghost" x-on:click="window.IntranetTours?.back?.()">
+                                Zurück
+                            </flux:button>
+                        @endif
+                        <flux:button type="button" size="sm" variant="primary" x-on:click="window.IntranetTours?.next?.()">
+                            Weiter
+                        </flux:button>
+                    </x-slot:actions>
+                </flux:callout>
+            @endif
+
             <div>
                 <flux:heading size="lg">Datei hochladen</flux:heading>
                 <flux:text class="mt-1">Datei in die Freigabe „{{ $uploadFolderName }}“ hochladen.</flux:text>
             </div>
 
             <form wire:submit="uploadToShare" class="space-y-4">
-                <flux:file-upload wire:model="uploadFile" label="Datei">
+                <flux:file-upload wire:model="uploadFile" label="Datei" data-tour="cloudshare-upload-dropzone">
                     <flux:file-upload.dropzone
                         heading="Datei hierher ziehen oder klicken"
                         :text="$this->maxUploadDescription()"
@@ -1124,20 +1390,46 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                 @endif
 
                 <div class="flex justify-end gap-2">
-                    <flux:button type="button" variant="ghost" wire:click="$set('showUploadModal', false)">Abbrechen</flux:button>
-                    <flux:button type="submit" variant="primary" wire:loading.attr="disabled">Hochladen</flux:button>
+                    @unless ($tourDemo)
+                        <flux:button type="button" variant="ghost" wire:click="$set('showUploadModal', false)">Abbrechen</flux:button>
+                    @endunless
+                    <flux:button type="submit" variant="primary" wire:loading.attr="disabled" data-tour="cloudshare-upload-submit" :disabled="$tourDemo">Hochladen</flux:button>
                 </div>
             </form>
         </flux:modal>
 
-        <flux:modal wire:model="showShareModal" class="w-full max-w-5xl space-y-6 md:w-[56rem]">
+        <flux:modal
+            wire:model="showShareModal"
+            class="w-full max-w-5xl space-y-6 md:w-[56rem]"
+            data-tour="cloudshare-share-modal"
+            :dismissible="! $tourDemo"
+            :escapable="! $tourDemo"
+            :closable="! $tourDemo"
+        >
+            @if ($tourDemo && $tourDemoStepText !== '')
+                <flux:callout variant="secondary" icon="map" data-tour="cloudshare-in-modal-tour">
+                    <flux:callout.heading>{{ $tourDemoStepTitle !== '' ? $tourDemoStepTitle : 'Tour' }}</flux:callout.heading>
+                    <flux:callout.text>{{ $tourDemoStepText }}</flux:callout.text>
+                    <x-slot:actions>
+                        @if ($tourDemoShowBack)
+                            <flux:button type="button" size="sm" variant="ghost" x-on:click="window.IntranetTours?.back?.()">
+                                Zurück
+                            </flux:button>
+                        @endif
+                        <flux:button type="button" size="sm" variant="primary" x-on:click="window.IntranetTours?.next?.()">
+                            Weiter
+                        </flux:button>
+                    </x-slot:actions>
+                </flux:callout>
+            @endif
+
             <div>
                 <flux:heading size="lg">Freigabe teilen</flux:heading>
                 <flux:text class="mt-1">E-Mail-Vorschau und Versand an einen Empfänger.</flux:text>
             </div>
 
             @if ($shareMailPreview !== '')
-                <div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
+                <div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700" data-tour="cloudshare-share-preview">
                     <iframe
                         title="E-Mail-Vorschau"
                         src="data:text/html;charset=utf-8;base64,{{ base64_encode($shareMailPreview) }}"
@@ -1147,16 +1439,18 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                 </div>
             @endif
 
-            <form wire:submit="sendShareMail" class="space-y-4">
-                <flux:input wire:model.live.debounce.500ms="shareMailSubject" label="Betreff" required />
-                <flux:input wire:model="shareMailEmail" label="Empfänger" type="email" required />
+            <form wire:submit="sendShareMail" class="space-y-4" data-tour="cloudshare-share-form">
+                <flux:input wire:model.live.debounce.500ms="shareMailSubject" label="Betreff" required data-tour="cloudshare-share-subject" />
+                <flux:input wire:model="shareMailEmail" label="Empfänger" type="email" required data-tour="cloudshare-share-email" />
 
                 @if ($this->currentShareHasStoredPassword())
-                    <flux:checkbox
-                        wire:model.live="sendPasswordViaBitwarden"
-                        label="Passwort per Bitwarden Send sicher übermitteln"
-                        description="Zusätzlich zur Freigabe-Mail wird eine separate Mail mit Bitwarden-Send-Link versendet."
-                    />
+                    <div data-tour="cloudshare-share-bitwarden">
+                        <flux:checkbox
+                            wire:model.live="sendPasswordViaBitwarden"
+                            label="Passwort per Bitwarden Send sicher übermitteln"
+                            description="Zusätzlich zur Freigabe-Mail wird eine separate Mail mit Bitwarden-Send-Link versendet."
+                        />
+                    </div>
                     @if ($sendPasswordViaBitwarden)
                         <flux:callout icon="shield-check">
                             <flux:callout.text>
@@ -1173,8 +1467,10 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                 @endif
 
                 <div class="flex justify-end gap-2">
-                    <flux:button type="button" variant="ghost" wire:click="$set('showShareModal', false)">Schließen</flux:button>
-                    <flux:button type="submit" variant="primary">Senden</flux:button>
+                    @unless ($tourDemo)
+                        <flux:button type="button" variant="ghost" wire:click="$set('showShareModal', false)">Schließen</flux:button>
+                    @endunless
+                    <flux:button type="submit" variant="primary" data-tour="cloudshare-share-submit" :disabled="$tourDemo">Senden</flux:button>
                 </div>
             </form>
         </flux:modal>
