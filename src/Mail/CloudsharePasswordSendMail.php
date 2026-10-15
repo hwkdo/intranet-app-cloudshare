@@ -6,13 +6,14 @@ namespace Hwkdo\IntranetAppCloudshare\Mail;
 
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Address;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
-class CloudsharePasswordSendMail extends Mailable
+class CloudsharePasswordSendMail extends Mailable implements ShouldQueue
 {
     use Queueable, SerializesModels;
 

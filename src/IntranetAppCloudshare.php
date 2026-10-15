@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Hwkdo\IntranetAppCloudshare;
 
+use Hwkdo\IntranetAppBase\Interfaces\ProvidesBackgroundActivitiesInterface;
+use Hwkdo\IntranetAppCloudshare\Background\CloudshareBackgroundActivities;
 use Hwkdo\IntranetAppBase\Data\TourDefinition;
 use Hwkdo\IntranetAppBase\Interfaces\IntranetAppInterface;
 use Hwkdo\IntranetAppBase\Interfaces\ProvidesDashboardWidgetsInterface;
@@ -11,7 +13,7 @@ use Hwkdo\IntranetAppBase\Interfaces\ProvidesToursInterface;
 use Hwkdo\IntranetAppCloudshare\Dashboard\CloudshareDashboardWidgetProvider;
 use Illuminate\Support\Collection;
 
-class IntranetAppCloudshare implements IntranetAppInterface, ProvidesDashboardWidgetsInterface, ProvidesToursInterface
+class IntranetAppCloudshare implements IntranetAppInterface, ProvidesBackgroundActivitiesInterface, ProvidesDashboardWidgetsInterface, ProvidesToursInterface
 {
     public static function app_name(): string
     {
@@ -77,4 +79,11 @@ class IntranetAppCloudshare implements IntranetAppInterface, ProvidesDashboardWi
             ),
         ];
     }
+
+    public static function backgroundActivities(): array
+    {
+        return CloudshareBackgroundActivities::definitions();
+    }
+
+
 }

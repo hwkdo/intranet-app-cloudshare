@@ -7,8 +7,8 @@ namespace Hwkdo\IntranetAppCloudshare;
 use Hwkdo\IntranetAppCloudshare\Commands\PurgeExpiredSharesCommand;
 use Hwkdo\IntranetAppCloudshare\Contracts\CloudshareServiceInterface;
 use Hwkdo\IntranetAppCloudshare\Services\CloudshareService;
-use Illuminate\Console\Scheduling\Schedule;
 use Livewire\Livewire;
+use Livewire\Volt\Volt;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 
@@ -33,6 +33,10 @@ class IntranetAppCloudshareServiceProvider extends PackageServiceProvider
     {
         parent::boot();
 
+        $this->app->booted(function (): void {
+            Volt::mount(__DIR__.'/../resources/views/livewire');
+        });
+
         Livewire::addNamespace(
             namespace: 'intranet-app-cloudshare',
             viewPath: __DIR__.'/../resources/views/livewire',
@@ -44,8 +48,5 @@ class IntranetAppCloudshareServiceProvider extends PackageServiceProvider
         $this->loadRoutesFrom(__DIR__.'/../routes/web.php');
         $this->loadRoutesFrom(__DIR__.'/../routes/api.php');
 
-        $this->app->resolving(Schedule::class, function (): void {
-            require __DIR__.'/../routes/console.php';
-        });
     }
 }

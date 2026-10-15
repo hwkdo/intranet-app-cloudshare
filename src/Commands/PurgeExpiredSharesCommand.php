@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace Hwkdo\IntranetAppCloudshare\Commands;
 
+use Hwkdo\IntranetAppBase\Services\BackgroundActivityCatalog;
+use Hwkdo\IntranetAppBase\Services\BackgroundActivityConfigStore;
 use Hwkdo\IntranetAppCloudshare\Contracts\CloudshareServiceInterface;
-use Hwkdo\IntranetAppCloudshare\Models\IntranetAppCloudshareSettings;
 use Illuminate\Console\Command;
 
 class PurgeExpiredSharesCommand extends Command
@@ -17,15 +18,16 @@ class PurgeExpiredSharesCommand extends Command
 
     public function handle(CloudshareServiceInterface $cloudshare): int
     {
-        $settings = IntranetAppCloudshareSettings::resolved();
+        $definition = app(BackgroundActivityCatalog::class)->find('cloudshare.purge-expired-shares');
+        $store = app(BackgroundActivityConfigStore::class);
 
-        if (! $settings->autoDeleteExpiredEnabled && ! $this->option('force')) {
+        if ($definition !== null && ! $store->isEnabled($definition) && ! $this->option('force')) {
             $this->info('Automatisches Löschen ist deaktiviert.');
 
             return self::SUCCESS;
         }
 
-        $afterDays = $settings->normalizedAutoDeleteAfterDays();
+        $afterDays = (int) $store->parameter('cloudshare.purge-expired-shares', 'after_days', 30);
         $result = $cloudshare->purgeExpiredShares($afterDays);
 
         $this->info(sprintf(

@@ -416,7 +416,7 @@ class CloudshareService implements CloudshareServiceInterface
 
         Mail::to($email)
             ->cc($user->email)
-            ->send($mailable);
+            ->queue($mailable);
 
         if (! $sendPasswordViaBitwarden) {
             return [
@@ -483,7 +483,7 @@ class CloudshareService implements CloudshareServiceInterface
 
             Mail::to($recipients)
                 ->cc($user->email)
-                ->send(new CloudsharePasswordSendMail($share['name'], $accessUrl, $user));
+                ->queue(new CloudsharePasswordSendMail($share['name'], $accessUrl, $user));
 
             return [
                 'bitwarden_sent' => true,

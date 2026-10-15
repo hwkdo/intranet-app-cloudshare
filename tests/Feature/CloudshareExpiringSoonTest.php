@@ -91,34 +91,15 @@ it('erkennt freigaben die nach karenzzeit automatisch geloescht werden sollen', 
         ], 0))->toBeFalse();
 });
 
-it('fuellt fehlende auto-delete-felder in alten appsettings mit defaults', function (): void {
+it('fuellt fehlende polling-felder in alten appsettings mit defaults', function (): void {
     $settings = AppSettings::from([
         'hinweisText' => '',
         'defaultBwSendMaxAccessCount' => 1,
         'defaultBwSendDeleteInDays' => 7,
     ]);
 
-    expect($settings->autoDeleteExpiredEnabled)->toBeFalse()
-        ->and($settings->autoDeleteExpiredAfterDays)->toBe(7)
-        ->and($settings->autoDeleteCheckEveryHours)->toBe(24)
-        ->and($settings->normalizedAutoDeleteAfterDays())->toBe(7)
-        ->and($settings->normalizedAutoDeleteCheckEveryHours())->toBe(24);
-});
-
-it('begrenzt die auto-delete-intervalle auf den erlaubten bereich', function (): void {
-    $tooLow = new AppSettings(
-        autoDeleteExpiredAfterDays: -3,
-        autoDeleteCheckEveryHours: 0,
-    );
-    $tooHigh = new AppSettings(
-        autoDeleteExpiredAfterDays: 900,
-        autoDeleteCheckEveryHours: 200,
-    );
-
-    expect($tooLow->normalizedAutoDeleteAfterDays())->toBe(0)
-        ->and($tooLow->normalizedAutoDeleteCheckEveryHours())->toBe(1)
-        ->and($tooHigh->normalizedAutoDeleteAfterDays())->toBe(365)
-        ->and($tooHigh->normalizedAutoDeleteCheckEveryHours())->toBe(168);
+    expect($settings->guestUploadPollSeconds)->toBe(30)
+        ->and($settings->hinweisText)->toBe('');
 });
 
 it('hebt bald ablaufende und abgelaufene freigaben in der liste hervor', function (): void {
