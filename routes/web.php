@@ -2,8 +2,6 @@
 
 declare(strict_types=1);
 
-use Livewire\Volt\Volt;
-
 use Hwkdo\IntranetAppCloudshare\Http\Controllers\CloudshareTourDemoController;
 use Illuminate\Support\Facades\Route;
 
@@ -21,12 +19,6 @@ Route::middleware(['web', 'auth', 'can:see-app-cloudshare'])->group(function ():
         ->name('apps.cloudshare.tour.demo.disable');
 });
 
-
 Route::middleware(['web', 'auth', 'can:manage-app-cloudshare'])->group(function (): void {
     Route::livewire('apps/cloudshare/admin', 'intranet-app-cloudshare::apps.cloudshare.admin.index')->name('apps.cloudshare.admin.index');
-});
-
-Route::middleware(['web', 'auth', 'can:manage-app-cloudshare'])->group(function (): void {
-    Volt::route('apps/cloudshare/admin/background-activities', 'apps.cloudshare.admin.background-activities')
-        ->name('apps.cloudshare.admin.background-activities');
 });

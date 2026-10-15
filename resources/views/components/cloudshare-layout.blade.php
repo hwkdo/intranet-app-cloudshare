@@ -9,7 +9,6 @@
         ['label' => 'Freigaben', 'href' => route('apps.cloudshare.index'), 'icon' => 'cloud', 'description' => 'OneDrive-Freigaben verwalten', 'buttonText' => 'Freigaben anzeigen'],
         ['label' => 'Meine Einstellungen', 'href' => route('apps.cloudshare.settings.user'), 'icon' => 'cog-6-tooth', 'description' => 'Persönliche Einstellungen anpassen', 'buttonText' => 'Einstellungen öffnen', 'welcomeSection' => 'settings'],
         ['label' => 'App-Info', 'href' => route('apps.cloudshare.info'), 'icon' => 'information-circle', 'description' => 'Installierte Version und Release-Historie', 'buttonText' => 'App-Info anzeigen', 'welcomeSection' => 'settings'],
-        ['label' => 'Hintergrund', 'href' => route('apps.cloudshare.admin.background-activities'), 'icon' => 'clock', 'description' => 'Geplante Tasks, Jobs und Versand', 'buttonText' => 'Hintergrund öffnen', 'permission' => 'manage-app-cloudshare'],
         ['label' => 'Admin', 'href' => route('apps.cloudshare.admin.index'), 'icon' => 'shield-check', 'description' => 'Administrationsbereich verwalten', 'buttonText' => 'Admin öffnen', 'permission' => 'manage-app-cloudshare', 'welcomeSection' => 'settings'],
     ];
 
