@@ -61,15 +61,18 @@ class CloudshareTourDemo
     }
 
     /**
-     * @return list<array{file: string, href: string, modified: string, size: int, id: string}>
+     * @return list<array{file: string, href: string, created: string, modified: string, size: int, id: string}>
      */
     public static function demoFiles(): array
     {
+        $timestamp = now()->format('d.m.Y H:i');
+
         return [
             [
                 'file' => 'beispiel-dokument.pdf',
                 'href' => 'https://1drv.ms/cloudshare-tour-demo/beispiel-dokument.pdf',
-                'modified' => now()->format('d.m.Y H:i'),
+                'created' => $timestamp,
+                'modified' => $timestamp,
                 'size' => 1024 * 240,
                 'id' => 'cloudshare-tour-demo-file-1',
             ],

@@ -26,7 +26,7 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
     /** @var array{quota_free: int|float|null, quota_used: int|float|null, quota_total: int|float|null, quota_relative: float}|null */
     public ?array $quota = null;
 
-    /** @var array<string, list<array{file: string, href: string, modified: string, size: int|string, id: string}>> */
+    /** @var array<string, list<array{file: string, href: string, created?: string, modified: string, size: int|string, id: string}>> */
     public array $filesByShareId = [];
 
     public bool $tourDemo = false;
@@ -664,6 +664,28 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
         return number_format($bytes / 1024, 2, ',', '.').' KB';
     }
 
+    public function fileDateLabel(?string $dateTime): string
+    {
+        $dateTime = trim((string) $dateTime);
+
+        if ($dateTime === '') {
+            return '';
+        }
+
+        return explode(' ', $dateTime, 2)[0];
+    }
+
+    public function fileDateTimeLabel(?string $dateTime): string
+    {
+        $dateTime = trim((string) $dateTime);
+
+        if ($dateTime === '' || ! str_contains($dateTime, ':')) {
+            return $dateTime;
+        }
+
+        return str_ends_with($dateTime, 'Uhr') ? $dateTime : $dateTime.' Uhr';
+    }
+
     public function maxUploadDescription(): string
     {
         $maxKb = (int) config('intranet-app-cloudshare.max_upload_kb', 256000);
@@ -677,7 +699,7 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
     }
 
     /**
-     * @return list<array{file: string, href: string, modified: string, size: int|string, id: string}>
+     * @return list<array{file: string, href: string, created?: string, modified: string, size: int|string, id: string}>
      */
     public function filesForShare(string $shareId): array
     {
@@ -1111,7 +1133,7 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                                         </div>
                                         <div class="flex flex-wrap items-center gap-1">
                                             @foreach ($this->shareHeaderBadges($share) as $badge)
-                                                <flux:badge :color="$badge['color']" size="sm">{{ $badge['label'] }}</flux:badge>
+                                                <flux:badge :color="$badge['color']" size="sm" data-cloudshare-badge="{{ $badge['label'] }}">{{ $badge['label'] }}</flux:badge>
                                             @endforeach
                                         </div>
                                     </div>
@@ -1206,6 +1228,8 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                                                 <flux:table>
                                                     <flux:table.columns>
                                                         <flux:table.column>Name</flux:table.column>
+                                                        <flux:table.column>Erstellt</flux:table.column>
+                                                        <flux:table.column>Aktualisiert</flux:table.column>
                                                         <flux:table.column>Größe</flux:table.column>
                                                         <flux:table.column></flux:table.column>
                                                     </flux:table.columns>
@@ -1224,6 +1248,26 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                                                                             <flux:badge color="lime">Neu</flux:badge>
                                                                         @endif
                                                                     </div>
+                                                                </flux:table.cell>
+                                                                <flux:table.cell>
+                                                                    @php($createdAt = (string) ($file['created'] ?? ''))
+                                                                    @if ($createdAt !== '')
+                                                                        <flux:tooltip :content="$this->fileDateTimeLabel($createdAt)">
+                                                                            <span class="cursor-help whitespace-nowrap tabular-nums">{{ $this->fileDateLabel($createdAt) }}</span>
+                                                                        </flux:tooltip>
+                                                                    @else
+                                                                        <span class="text-zinc-400">–</span>
+                                                                    @endif
+                                                                </flux:table.cell>
+                                                                <flux:table.cell>
+                                                                    @php($modifiedAt = (string) ($file['modified'] ?? ''))
+                                                                    @if ($modifiedAt !== '')
+                                                                        <flux:tooltip :content="$this->fileDateTimeLabel($modifiedAt)">
+                                                                            <span class="cursor-help whitespace-nowrap tabular-nums">{{ $this->fileDateLabel($modifiedAt) }}</span>
+                                                                        </flux:tooltip>
+                                                                    @else
+                                                                        <span class="text-zinc-400">–</span>
+                                                                    @endif
                                                                 </flux:table.cell>
                                                                 <flux:table.cell>{{ $this->formatFileSize($file['size']) }}</flux:table.cell>
                                                                 <flux:table.cell class="text-right">

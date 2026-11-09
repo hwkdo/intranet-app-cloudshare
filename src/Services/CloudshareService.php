@@ -202,7 +202,7 @@ class CloudshareService implements CloudshareServiceInterface
 
     /**
      * @param  list<array{id: string, name: string}>  $shares
-     * @return array<string, list<array{file: string, href: string, modified: string, size: int|string, id: string}>>
+     * @return array<string, list<array{file: string, href: string, created: string, modified: string, size: int|string, id: string}>>
      */
     public function listFilesForShares(Authenticatable $user, array $shares, bool $forceRefresh = false): array
     {
@@ -566,7 +566,7 @@ class CloudshareService implements CloudshareServiceInterface
     }
 
     /**
-     * @return list<array{file: string, href: string, modified: string, size: int|string, id: string}>
+     * @return list<array{file: string, href: string, created: string, modified: string, size: int|string, id: string}>
      */
     protected function fetchFilesFromGraph(Authenticatable $user, string $folderName): array
     {
@@ -579,7 +579,7 @@ class CloudshareService implements CloudshareServiceInterface
 
     /**
      * @param  list<object>|array<int, mixed>  $items
-     * @return list<array{file: string, href: string, modified: string, size: int|string, id: string}>
+     * @return list<array{file: string, href: string, created: string, modified: string, size: int|string, id: string}>
      */
     protected function mapDriveItemsToFiles(array $items): array
     {
@@ -590,6 +590,7 @@ class CloudshareService implements CloudshareServiceInterface
                 continue;
             }
 
+            $createdAt = $this->shareCreatedAt($item);
             $modified = method_exists($item, 'getLastModifiedDateTime')
                 ? $item->getLastModifiedDateTime()
                 : null;
@@ -597,6 +598,7 @@ class CloudshareService implements CloudshareServiceInterface
             $files[] = [
                 'file' => (string) (method_exists($item, 'getName') ? $item->getName() : ''),
                 'href' => (string) (method_exists($item, 'getWebUrl') ? ($item->getWebUrl() ?? '') : ''),
+                'created' => $createdAt ? $this->formatAppDateTime($createdAt, 'd.m.Y H:i') : '',
                 'modified' => $modified ? $this->formatAppDateTime($modified, 'd.m.Y H:i') : '',
                 'size' => method_exists($item, 'getSize') ? ($item->getSize() ?? 0) : 0,
                 'id' => (string) (method_exists($item, 'getId') ? $item->getId() : ''),

@@ -8,7 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * @property array{file: string, href: string, modified: string, size: int|string, id: string} $resource
+ * @property array{file: string, href: string, created?: string, modified: string, size: int|string, id: string} $resource
  */
 class ApiShareFileResource extends JsonResource
 {
@@ -17,19 +17,21 @@ class ApiShareFileResource extends JsonResource
      *     id: string,
      *     name: string,
      *     href: string,
+     *     created: string,
      *     modified: string,
      *     size: int
      * }
      */
     public function toArray(Request $request): array
     {
-        /** @var array{file: string, href: string, modified: string, size: int|string, id: string} $file */
+        /** @var array{file: string, href: string, created?: string, modified: string, size: int|string, id: string} $file */
         $file = $this->resource;
 
         return [
             'id' => (string) $file['id'],
             'name' => (string) $file['file'],
             'href' => (string) $file['href'],
+            'created' => (string) ($file['created'] ?? ''),
             'modified' => (string) $file['modified'],
             'size' => is_numeric($file['size']) ? (int) $file['size'] : 0,
         ];

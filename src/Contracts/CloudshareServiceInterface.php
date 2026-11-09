@@ -70,13 +70,13 @@ interface CloudshareServiceInterface
     public function extendShareExpiration(Authenticatable $user, string $shareId, string $expiresAt): array;
 
     /**
-     * @return list<array{file: string, href: string, modified: string, size: int|string, id: string}>
+     * @return list<array{file: string, href: string, created: string, modified: string, size: int|string, id: string}>
      */
     public function listFiles(Authenticatable $user, string $folderName, bool $forceRefresh = false): array;
 
     /**
      * @param  list<array{id: string, name: string}>  $shares
-     * @return array<string, list<array{file: string, href: string, modified: string, size: int|string, id: string}>>
+     * @return array<string, list<array{file: string, href: string, created: string, modified: string, size: int|string, id: string}>>
      */
     public function listFilesForShares(Authenticatable $user, array $shares, bool $forceRefresh = false): array;
 

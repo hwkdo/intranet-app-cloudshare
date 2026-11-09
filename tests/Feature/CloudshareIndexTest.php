@@ -222,6 +222,49 @@ it('stellt freigaben als eingeklappte klappliste dar', function (): void {
     expect($badges)->toBe(['Passwort', 'Gast-Upload', '1 Datei']);
 });
 
+it('zeigt erstell- und aktualisierungsdatum der dateien und die uhrzeit im tooltip', function (): void {
+    $user = User::factory()->create([
+        'username' => 'file.dates',
+        'vorname' => 'File',
+        'nachname' => 'Dates',
+        'email' => 'file.dates@example.com',
+    ]);
+    $user->givePermissionTo('see-app-cloudshare');
+
+    $this->mock(CloudshareServiceInterface::class, function ($mock): void {
+        $mock->shouldReceive('listShares')->andReturn([
+            cloudshareSampleShare([
+                'name' => 'Projekt-X',
+                'id' => 'share-1',
+            ]),
+        ]);
+        $mock->shouldReceive('quota')->andReturn(null);
+        $mock->shouldReceive('listFilesForShares')->andReturn([
+            'share-1' => [[
+                'file' => 'angebot.pdf',
+                'href' => 'https://example.com/angebot.pdf',
+                'created' => '17.08.2026 09:15',
+                'modified' => '18.08.2026 10:25',
+                'size' => 1024,
+                'id' => 'file-1',
+            ]],
+        ]);
+    });
+
+    actingAs($user);
+
+    $component = Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
+        ->assertSee('Erstellt')
+        ->assertSee('Aktualisiert')
+        ->assertSee('17.08.2026')
+        ->assertSee('18.08.2026')
+        ->assertSee('17.08.2026 09:15 Uhr')
+        ->assertSee('18.08.2026 10:25 Uhr');
+
+    expect($component->instance()->fileDateLabel('17.08.2026 09:15'))->toBe('17.08.2026')
+        ->and($component->instance()->fileDateTimeLabel('18.08.2026 10:25'))->toBe('18.08.2026 10:25 Uhr');
+});
+
 it('filtert freigaben nach namen und enthaltenen dateien', function (): void {
     $user = User::factory()->create([
         'username' => 'search.user',
@@ -499,14 +542,14 @@ it('zeigt neue gast-dateien nach dem polling ohne seitenneuladen', function (): 
 
     $component = Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
         ->assertDontSee('vom-gast.pdf')
-        ->assertDontSee('Aktualisiert');
+        ->assertDontSeeHtml('data-cloudshare-badge="Aktualisiert"');
 
     expect($component->instance()->fileIsNewSinceOpen('file-guest-1'))->toBeFalse()
         ->and($component->instance()->shareHasUpdatesSinceOpen('share-guest'))->toBeFalse();
 
     $component->call('refreshGuestUploads')
         ->assertSee('vom-gast.pdf')
-        ->assertSee('Aktualisiert');
+        ->assertSeeHtml('data-cloudshare-badge="Aktualisiert"');
 
     expect($component->instance()->fileIsNewSinceOpen('file-guest-1'))->toBeTrue()
         ->and($component->instance()->shareHasUpdatesSinceOpen('share-guest'))->toBeTrue();
@@ -555,13 +598,13 @@ it('hebt nur seit seitenaufruf hinzugekommene dateien hervor', function (): void
 
     $component = Livewire::test('intranet-app-cloudshare::apps.cloudshare.index')
         ->assertSee('alt.pdf')
-        ->assertDontSee('Aktualisiert');
+        ->assertDontSeeHtml('data-cloudshare-badge="Aktualisiert"');
 
     expect($component->instance()->fileIsNewSinceOpen('file-old'))->toBeFalse();
 
     $component->call('refreshGuestUploads')
         ->assertSee('vom-gast.pdf')
-        ->assertSee('Aktualisiert');
+        ->assertSeeHtml('data-cloudshare-badge="Aktualisiert"');
 
     expect($component->instance()->fileIsNewSinceOpen('file-old'))->toBeFalse()
         ->and($component->instance()->fileIsNewSinceOpen('file-guest-1'))->toBeTrue()

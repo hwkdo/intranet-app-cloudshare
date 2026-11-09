@@ -1010,7 +1010,41 @@ it('laedt dateien fuer mehrere freigaben per batch', function (): void {
 
     expect($result)->toHaveKeys(['share-a', 'share-b'])
         ->and($result['share-a'][0]['file'])->toBe('a.pdf')
-        ->and($result['share-b'][0]['file'])->toBe('b.pdf');
+        ->and($result['share-b'][0]['file'])->toBe('b.pdf')
+        ->and($result['share-a'][0]['created'])->toBe('')
+        ->and($result['share-a'][0]['modified'])->toBe('');
+});
+
+it('formatiert erstell- und aenderungszeitpunkt von dateien in der app-zeitzone', function (): void {
+    $user = cloudshareUser();
+    actingAs($user);
+
+    $created = new DateTimeImmutable('2026-08-18 07:15:00', new DateTimeZone('UTC'));
+    $modified = new DateTimeImmutable('2026-08-18 08:25:00', new DateTimeZone('UTC'));
+
+    $file = Mockery::mock();
+    $file->shouldReceive('getName')->andReturn('angebot.pdf');
+    $file->shouldReceive('getWebUrl')->andReturn('https://example.com/angebot.pdf');
+    $file->shouldReceive('getCreatedDateTime')->andReturn($created);
+    $file->shouldReceive('getLastModifiedDateTime')->andReturn($modified);
+    $file->shouldReceive('getSize')->andReturn(1024);
+    $file->shouldReceive('getId')->andReturn('file-angebot');
+
+    $oneDrive = mockCloudshareOneDrive();
+    $oneDrive->shouldReceive('batchGetUserDriveContents')
+        ->once()
+        ->andReturn([
+            'Cloudshare/Projekt' => [$file],
+        ]);
+
+    $result = app(CloudshareService::class)->listFilesForShares($user, [
+        ['id' => 'share-projekt', 'name' => 'Projekt'],
+    ]);
+
+    $timezone = (string) config('app.timezone');
+
+    expect($result['share-projekt'][0]['created'])->toBe(Carbon::parse($created)->timezone($timezone)->format('d.m.Y H:i'))
+        ->and($result['share-projekt'][0]['modified'])->toBe(Carbon::parse($modified)->timezone($timezone)->format('d.m.Y H:i'));
 });
 
 it('zeigt neue freigaben sofort trotz cache', function (): void {

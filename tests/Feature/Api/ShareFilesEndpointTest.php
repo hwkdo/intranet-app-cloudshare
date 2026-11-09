@@ -110,6 +110,7 @@ it('listet die dateien einer bestehenden freigabe', function (): void {
             [
                 'file' => 'angebot.pdf',
                 'href' => 'https://1drv.ms/angebot',
+                'created' => '17.08.2026 09:15',
                 'modified' => '18.08.2026 10:00',
                 'size' => 128000,
                 'id' => 'file-1',
@@ -121,6 +122,8 @@ it('listet die dateien einer bestehenden freigabe', function (): void {
         ->assertJsonCount(1, 'data')
         ->assertJsonPath('data.0.id', 'file-1')
         ->assertJsonPath('data.0.name', 'angebot.pdf')
+        ->assertJsonPath('data.0.created', '17.08.2026 09:15')
+        ->assertJsonPath('data.0.modified', '18.08.2026 10:00')
         ->assertJsonPath('data.0.size', 128000);
 });
 
