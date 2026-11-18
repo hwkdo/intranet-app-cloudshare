@@ -146,43 +146,45 @@ new class extends Component
 ?>
 
 @placeholder
-    <flux:card class="h-full">
+    <div class="glass-card h-full p-4">
         <div class="mb-3 space-y-2">
             <flux:skeleton class="h-4 w-52" />
             <flux:skeleton class="h-3 w-72" />
         </div>
         <div class="space-y-2">
-            <flux:skeleton class="h-14 w-full rounded-md" />
-            <flux:skeleton class="h-14 w-full rounded-md" />
-            <flux:skeleton class="h-14 w-full rounded-md" />
+            <flux:skeleton class="h-14 w-full rounded-xl" />
+            <flux:skeleton class="h-14 w-full rounded-xl" />
+            <flux:skeleton class="h-14 w-full rounded-xl" />
         </div>
-    </flux:card>
+    </div>
 @endplaceholder
 
-<div class="h-full min-h-0 flex flex-col">
+<div class="flex h-full min-h-0 flex-col">
     <x-intranet-app-base::dashboard.widget-card
         title="Ablaufende Freigaben"
         :description="'Ihre Freigaben, die abgelaufen sind oder in den nächsten '.$this->expiringSoonDays().' Tagen ablaufen (max. '.$this->itemLimit().')'"
     >
         @if ($needsMicrosoftLogin)
-            <flux:callout variant="warning" icon="exclamation-triangle">
-                <flux:callout.heading>Microsoft-Anmeldung erforderlich</flux:callout.heading>
-                <flux:callout.text>
-                    Cloud Share nutzt Ihr Microsoft-Konto für OneDrive-Freigaben.
-                </flux:callout.text>
-            </flux:callout>
-            <flux:button :href="route('auth.microsoft.redirect')" variant="primary" size="sm">
-                Mit Microsoft anmelden
-            </flux:button>
+            <x-intranet-app-cloudshare::note icon="exclamation-triangle" title="Microsoft-Anmeldung erforderlich">
+                Cloud Share nutzt Ihr Microsoft-Konto für OneDrive-Freigaben.
+                <div class="mt-3">
+                    <flux:button :href="route('auth.microsoft.redirect')" variant="primary" size="sm">
+                        Mit Microsoft anmelden
+                    </flux:button>
+                </div>
+            </x-intranet-app-cloudshare::note>
         @elseif ($errorMessage !== '')
-            <flux:text class="text-zinc-500 dark:text-white/80">{{ $errorMessage }}</flux:text>
+            <x-intranet-app-cloudshare::note icon="exclamation-triangle" title="Freigaben nicht geladen">
+                {{ $errorMessage }}
+            </x-intranet-app-cloudshare::note>
         @else
             @forelse ($this->items as $row)
                 <div
+                    wire:key="expiring-{{ $row['id'] }}"
                     @class([
-                        'rounded-md border px-3 py-2',
-                        'border-red-200 bg-red-50/70 dark:border-red-500/40 dark:bg-red-950' => $row['expired'],
-                        'border-amber-200 bg-amber-50/70 dark:border-amber-500/40 dark:bg-amber-950' => ! $row['expired'],
+                        'rounded-xl border px-3 py-2',
+                        'border-red-300 bg-red-50/80 dark:border-red-400/40 dark:bg-red-950/40' => $row['expired'],
+                        'border-amber-300 bg-amber-50/80 dark:border-amber-400/40 dark:bg-amber-950/40' => ! $row['expired'],
                     ])
                 >
                     <div class="flex items-start justify-between gap-2">
@@ -191,10 +193,10 @@ new class extends Component
                             wire:navigate
                             class="group min-w-0 flex-1"
                         >
-                            <div class="truncate font-medium text-zinc-900 group-hover:text-zinc-950 dark:text-white">
+                            <div class="truncate font-medium text-[#073070] group-hover:text-[#04214e] dark:text-white">
                                 {{ $row['name'] }}
                             </div>
-                            <div class="mt-0.5 text-xs text-zinc-500 dark:text-white/70">
+                            <div class="mt-0.5 text-xs text-slate-600 dark:text-white/70">
                                 Gültig bis {{ $row['expiration'] }}
                             </div>
                         </a>
@@ -220,9 +222,7 @@ new class extends Component
                     </div>
                 </div>
             @empty
-                <flux:text class="text-zinc-500 dark:text-white/80">
-                    Keine abgelaufenen oder bald ablaufenden Freigaben.
-                </flux:text>
+                <x-intranet-app-cloudshare::empty icon="calendar-days" title="Keine abgelaufenen oder bald ablaufenden Freigaben." />
             @endforelse
 
             @if (count($this->items) > 0)
@@ -237,10 +237,10 @@ new class extends Component
 
     <flux:modal wire:model="showExtendModal" class="md:w-[32rem] space-y-6">
         <div>
-            <flux:heading size="lg">Gültigkeit verlängern</flux:heading>
-            <flux:text class="mt-1">
+            <h2 class="text-lg font-semibold tracking-tight text-[#073070] dark:text-white">Gültigkeit verlängern</h2>
+            <p class="mt-1 text-sm text-slate-600 dark:text-white/70">
                 Neues Ablaufdatum für die Freigabe „{{ $extendShareName }}“ setzen.
-            </flux:text>
+            </p>
         </div>
 
         <form wire:submit="extendShareExpiration" class="space-y-4">

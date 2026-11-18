@@ -969,20 +969,17 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
 
 @placeholder
 <div>
-    <x-intranet-app-cloudshare::cloudshare-layout heading="Cloud Share" subheading="Temporäre OneDrive-Freigaben für Externe">
+    <x-intranet-app-cloudshare::cloudshare-layout heading="Freigaben" subheading="Temporäre OneDrive-Freigaben für Externe" icon="cloud">
+        <x-intranet-app-cloudshare::note icon="cloud" title="Daten werden von Microsoft geladen">
+            Cloud Share ruft Ihre Freigaben und Dateien aus OneDrive ab. Das kann einige Sekunden dauern.
+        </x-intranet-app-cloudshare::note>
+
+        <div class="flex items-center gap-2 text-sm text-slate-600 dark:text-white/70">
+            <flux:icon.arrow-path class="size-5 animate-spin" />
+            Bitte warten …
+        </div>
+
         <div class="space-y-4">
-            <flux:callout icon="cloud">
-                <flux:callout.heading>Daten werden von Microsoft geladen</flux:callout.heading>
-                <flux:callout.text>
-                    Cloud Share ruft Ihre Freigaben und Dateien aus OneDrive ab. Das kann einige Sekunden dauern.
-                </flux:callout.text>
-            </flux:callout>
-
-            <div class="flex items-center gap-2 text-sm text-zinc-500">
-                <flux:icon.arrow-path class="size-5 animate-spin" />
-                Bitte warten …
-            </div>
-
             <flux:skeleton.group animate="shimmer" class="space-y-4">
                 <flux:skeleton class="h-24 w-full rounded-xl" />
                 <flux:skeleton class="h-24 w-full rounded-xl" />
@@ -994,144 +991,203 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
 @endplaceholder
 
 <div data-tour="cloudshare-page">
-    <x-intranet-app-cloudshare::cloudshare-layout heading="Cloud Share" subheading="Temporäre OneDrive-Freigaben für Externe">
+    <x-intranet-app-cloudshare::cloudshare-layout heading="Freigaben" subheading="Temporäre OneDrive-Freigaben für Externe" icon="cloud">
         @if ($tourDemo)
-            <flux:callout variant="secondary" icon="map" class="mb-4" data-tour="cloudshare-demo-banner">
-                <flux:callout.heading>Tour-Demo aktiv</flux:callout.heading>
-                <flux:callout.text>
-                    Die angezeigte Freigabe ist Beispieldaten für die Produkt-Tour und wird nicht in OneDrive gespeichert.
-                </flux:callout.text>
+            <x-intranet-app-cloudshare::note icon="map" title="Tour-Demo aktiv" data-tour="cloudshare-demo-banner">
                 <x-slot:actions>
                     <flux:button wire:click="disableTourDemo" size="sm" variant="ghost">
                         Demo beenden
                     </flux:button>
                 </x-slot:actions>
-            </flux:callout>
+                Die angezeigte Freigabe ist Beispieldaten für die Produkt-Tour und wird nicht in OneDrive gespeichert.
+            </x-intranet-app-cloudshare::note>
         @endif
 
-        <div class="space-y-6">
-            <div class="flex flex-wrap items-center justify-between gap-3" data-tour="cloudshare-toolbar">
-                <flux:heading size="lg">Freigaben</flux:heading>
-                <div class="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
-                    <div class="w-full sm:w-72" data-tour="cloudshare-search">
-                        <flux:input
-                            wire:model.live.debounce.300ms="search"
-                            type="search"
-                            icon="magnifying-glass"
-                            placeholder="Freigaben und Dateien suchen"
-                            clearable
-                            aria-label="Freigaben und Dateien suchen"
-                            :disabled="$needsMicrosoftLogin || count($shares) === 0"
-                        />
-                    </div>
-                    <flux:button
-                        variant="primary"
-                        icon="plus"
-                        wire:click="openCreateModal"
-                        :disabled="$needsMicrosoftLogin"
-                        data-tour="cloudshare-new-button"
-                    >Neu</flux:button>
+        @if ($needsMicrosoftLogin)
+            <x-intranet-app-cloudshare::note icon="exclamation-triangle" title="Microsoft-Anmeldung erforderlich" data-tour="cloudshare-microsoft-login">
+                Cloud Share nutzt Ihr Microsoft-Konto für OneDrive-Freigaben.
+                {{ $errorMessage }}
+                <div class="mt-3">
+                    <flux:button :href="route('auth.microsoft.redirect')" variant="primary">
+                        Mit Microsoft anmelden
+                    </flux:button>
                 </div>
-            </div>
+            </x-intranet-app-cloudshare::note>
+        @elseif ($errorMessage)
+            <x-intranet-app-cloudshare::note icon="exclamation-triangle" title="Fehler">
+                {{ $errorMessage }}
+            </x-intranet-app-cloudshare::note>
+        @endif
 
-            @if (count($shares) > 0)
-                <flux:text class="text-sm">
-                    @if ($this->searchTerm() !== '')
-                        {{ count($this->filteredShares) }} von {{ count($shares) }} {{ count($shares) === 1 ? 'Freigabe' : 'Freigaben' }}
-                    @else
-                        {{ count($shares) }} {{ count($shares) === 1 ? 'Freigabe' : 'Freigaben' }}
-                    @endif
-                </flux:text>
-            @endif
+        @if ($hinweisText !== '')
+            <x-intranet-app-cloudshare::note icon="information-circle">
+                {{ $hinweisText }}
+            </x-intranet-app-cloudshare::note>
+        @endif
 
-            @if ($needsMicrosoftLogin)
-                <flux:callout variant="warning" icon="exclamation-triangle" data-tour="cloudshare-microsoft-login">
-                    <flux:callout.heading>Microsoft-Anmeldung erforderlich</flux:callout.heading>
-                    <flux:callout.text>
-                        Cloud Share nutzt Ihr Microsoft-Konto für OneDrive-Freigaben.
-                        {{ $errorMessage }}
-                    </flux:callout.text>
-                </flux:callout>
-                <flux:button :href="route('auth.microsoft.redirect')" variant="primary">
-                    Mit Microsoft anmelden
-                </flux:button>
-            @elseif ($errorMessage)
-                <flux:callout variant="danger" icon="exclamation-triangle">
-                    <flux:callout.heading>Fehler</flux:callout.heading>
-                    <flux:callout.text>{{ $errorMessage }}</flux:callout.text>
-                </flux:callout>
-            @endif
-
-            @if ($hinweisText !== '')
-                <flux:callout icon="information-circle">
-                    <flux:callout.text>{{ $hinweisText }}</flux:callout.text>
-                </flux:callout>
-            @endif
-
-            @if ($quota)
-                @php
-                    $relative = $this->quotaRelative();
-                    $quotaVariant = $relative >= 90 ? 'danger' : ($relative >= 70 ? 'warning' : 'success');
-                    $quotaText = $relative >= 90
-                        ? 'Es stehen nur noch '.$this->formatBytes($quota['quota_free']).' zur Verfügung. Keine Uploads möglich.'
-                        : ($relative >= 70
-                            ? 'Es stehen nur noch '.$this->formatBytes($quota['quota_free']).' zur Verfügung.'
-                            : 'Es stehen noch '.$this->formatBytes($quota['quota_free']).' zur Verfügung.');
-                @endphp
-                <flux:callout :variant="$quotaVariant" icon="circle-stack">
-                    <flux:callout.heading>OneDrive-Speicher</flux:callout.heading>
-                    <flux:callout.text>
+        @if ($quota)
+            @php
+                $relative = $this->quotaRelative();
+                $quotaLevel = $relative >= 90 ? 'danger' : ($relative >= 70 ? 'warning' : 'ok');
+                $quotaText = $relative >= 90
+                    ? 'Es stehen nur noch '.$this->formatBytes($quota['quota_free']).' zur Verfügung. Keine Uploads möglich.'
+                    : ($relative >= 70
+                        ? 'Es stehen nur noch '.$this->formatBytes($quota['quota_free']).' zur Verfügung.'
+                        : 'Es stehen noch '.$this->formatBytes($quota['quota_free']).' zur Verfügung.');
+                $quotaStatusLabel = match ($quotaLevel) {
+                    'danger' => 'Fast voll',
+                    'warning' => 'Wenig frei',
+                    default => 'Ausreichend frei',
+                };
+            @endphp
+            <section @class([
+                'glass-card overflow-hidden border-s-4',
+                'border-s-emerald-500' => $quotaLevel === 'ok',
+                'border-s-amber-500' => $quotaLevel === 'warning',
+                'border-s-red-600' => $quotaLevel === 'danger',
+            ])>
+                <div class="flex flex-wrap items-center justify-between gap-4 border-b border-[#d0e3f9] px-5 py-4 dark:border-white/10">
+                    <div class="flex min-w-0 items-center gap-3">
+                        <span @class([
+                            'grid size-10 shrink-0 place-items-center rounded-xl',
+                            'bg-emerald-500/15 text-emerald-700 dark:bg-emerald-400/20 dark:text-emerald-300' => $quotaLevel === 'ok',
+                            'bg-amber-500/15 text-amber-700 dark:bg-amber-400/20 dark:text-amber-300' => $quotaLevel === 'warning',
+                            'bg-red-600/15 text-red-700 dark:bg-red-400/20 dark:text-red-300' => $quotaLevel === 'danger',
+                        ])>
+                            <flux:icon.circle-stack variant="micro" class="size-5" />
+                        </span>
+                        <div class="min-w-0">
+                            <h2 class="text-sm font-semibold text-[#073070] dark:text-white">OneDrive-Speicher</h2>
+                            <p class="text-xs text-slate-600 dark:text-white/70">{{ $quotaText }}</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <p @class([
+                            'text-2xl font-semibold tabular-nums tracking-tight',
+                            'text-emerald-700 dark:text-emerald-300' => $quotaLevel === 'ok',
+                            'text-amber-700 dark:text-amber-300' => $quotaLevel === 'warning',
+                            'text-red-700 dark:text-red-300' => $quotaLevel === 'danger',
+                        ])>{{ $this->formatBytes($quota['quota_free']) }}</p>
+                        <p @class([
+                            'text-xs font-semibold tracking-wide uppercase',
+                            'text-emerald-700 dark:text-emerald-300' => $quotaLevel === 'ok',
+                            'text-amber-700 dark:text-amber-300' => $quotaLevel === 'warning',
+                            'text-red-700 dark:text-red-300' => $quotaLevel === 'danger',
+                        ])>{{ $quotaStatusLabel }}</p>
+                    </div>
+                </div>
+                <div class="space-y-2 px-5 py-4">
+                    <div class="flex items-center justify-between gap-3 text-sm text-slate-600 dark:text-white/70">
+                        <span>
+                            {{ $this->formatBytes($quota['quota_used']) }} von {{ $this->formatBytes($quota['quota_total']) }} belegt
+                        </span>
+                        <span class="tabular-nums">{{ number_format($relative, 2, ',', '.') }} %</span>
+                    </div>
+                    <div
+                        class="overflow-hidden rounded-full bg-[#d0e3f9] dark:bg-black/35"
+                        style="height: 10px"
+                        role="meter"
+                        aria-label="Belegter OneDrive-Speicher"
+                        aria-valuemin="0"
+                        aria-valuemax="100"
+                        aria-valuenow="{{ (int) round($relative) }}"
+                    >
+                        <div
+                            @class([
+                                'h-full rounded-full',
+                                'bg-emerald-500' => $quotaLevel === 'ok',
+                                'bg-amber-500' => $quotaLevel === 'warning',
+                                'bg-red-600' => $quotaLevel === 'danger',
+                            ])
+                            style="width: {{ min(100, max(0, $relative)) }}%"
+                        ></div>
+                    </div>
+                    <p class="text-sm text-slate-600 dark:text-white/70">
                         Sie verwenden aktuell {{ $this->formatBytes($quota['quota_used']) }} von insgesamt
                         {{ $this->formatBytes($quota['quota_total']) }} Speicherplatz
                         ({{ number_format($relative, 2, ',', '.') }} %).
-                        {{ $quotaText }}
-                    </flux:callout.text>
-                </flux:callout>
-            @endif
+                    </p>
+                </div>
+            </section>
+        @endif
 
-            <div wire:loading.flex wire:target="refreshData,createShare,uploadToShare,deleteItem,extendShareExpiration" class="hidden items-center gap-2 text-sm text-zinc-500">
-                <flux:icon.arrow-path class="size-4 animate-spin" />
-                Daten werden von Microsoft OneDrive geladen …
+        <div class="glass-card sticky top-3 z-20 p-3 shadow-lg shadow-[#073070]/10" style="--glass-opacity: 0.92" data-tour="cloudshare-toolbar">
+            <div class="flex flex-wrap items-center gap-3">
+                <div class="min-w-[12rem] flex-1" data-tour="cloudshare-search">
+                    <flux:input
+                        wire:model.live.debounce.300ms="search"
+                        type="search"
+                        icon="magnifying-glass"
+                        placeholder="Freigaben und Dateien suchen"
+                        clearable
+                        aria-label="Freigaben und Dateien suchen"
+                        :disabled="$needsMicrosoftLogin || count($shares) === 0"
+                    />
+                </div>
+                <flux:button
+                    variant="primary"
+                    icon="plus"
+                    wire:click="openCreateModal"
+                    :disabled="$needsMicrosoftLogin"
+                    data-tour="cloudshare-new-button"
+                >Neu</flux:button>
             </div>
 
-            @if (count($shares) === 0 && $errorMessage === '')
-                <flux:card class="text-center py-10">
-                    <flux:heading size="md">Sie haben noch keine Freigaben</flux:heading>
-                    <flux:text class="mt-2">Legen Sie eine neue Freigabe an, um Dateien mit Externen zu teilen.</flux:text>
-                </flux:card>
-            @elseif (count($this->filteredShares) === 0 && $this->searchTerm() !== '')
-                <flux:card class="text-center py-10">
-                    <flux:heading size="md">Keine Treffer</flux:heading>
-                    <flux:text class="mt-2">Keine Freigaben oder Dateien zu „{{ $search }}“.</flux:text>
-                </flux:card>
+            @if (count($shares) > 0 || $this->shouldPollGuestUploads())
+                <div class="mt-2.5 space-y-1 border-t border-[#d0e3f9] pt-2.5 text-sm text-slate-600 dark:border-white/10 dark:text-white/70">
+                    @if (count($shares) > 0)
+                        <p>
+                            @if ($this->searchTerm() !== '')
+                                {{ count($this->filteredShares) }} von {{ count($shares) }} {{ count($shares) === 1 ? 'Freigabe' : 'Freigaben' }}
+                            @else
+                                {{ count($shares) }} {{ count($shares) === 1 ? 'Freigabe' : 'Freigaben' }}
+                            @endif
+                        </p>
+                    @endif
+                    @if ($this->shouldPollGuestUploads())
+                        <p>Freigaben mit Gast-Upload werden automatisch aktualisiert.</p>
+                    @endif
+                </div>
             @endif
+        </div>
 
-            <div
-                class="space-y-4"
-                data-tour="cloudshare-list"
-                @if ($this->shouldPollGuestUploads())
-                    wire:poll.{{ $this->guestUploadPollSeconds() }}s.visible="refreshGuestUploads"
-                @endif
-            >
-                @if ($this->shouldPollGuestUploads())
-                    <flux:text class="text-sm text-zinc-500">Freigaben mit Gast-Upload werden automatisch aktualisiert.</flux:text>
-                @endif
+        <div wire:loading.flex wire:target="refreshData,createShare,uploadToShare,deleteItem,extendShareExpiration" class="hidden items-center gap-2 text-sm text-slate-600 dark:text-white/70">
+            <flux:icon.arrow-path class="size-4 animate-spin" />
+            Daten werden von Microsoft OneDrive geladen …
+        </div>
 
-                @foreach ($this->filteredShares as $share)
-                    <div
-                        wire:key="share-{{ $share['id'] }}"
-                        @if ($loop->first) data-tour="cloudshare-first-share" @endif
-                    >
-                    <flux:card class="glass-card">
+        @if (count($shares) === 0 && $errorMessage === '')
+            <x-intranet-app-cloudshare::empty icon="cloud" title="Sie haben noch keine Freigaben">
+                Legen Sie eine neue Freigabe an, um Dateien mit Externen zu teilen.
+            </x-intranet-app-cloudshare::empty>
+        @elseif (count($this->filteredShares) === 0 && $this->searchTerm() !== '')
+            <x-intranet-app-cloudshare::empty icon="magnifying-glass" title="Keine Treffer">
+                Keine Freigaben oder Dateien zu „{{ $search }}“.
+            </x-intranet-app-cloudshare::empty>
+        @endif
+
+        <div
+            class="space-y-4"
+            data-tour="cloudshare-list"
+            @if ($this->shouldPollGuestUploads())
+                wire:poll.{{ $this->guestUploadPollSeconds() }}s.visible="refreshGuestUploads"
+            @endif
+        >
+            @foreach ($this->filteredShares as $share)
+                <div
+                    wire:key="share-{{ $share['id'] }}"
+                    @if ($loop->first) data-tour="cloudshare-first-share" @endif
+                >
+                    <flux:card class="glass-card" style="--glass-opacity: 0.96">
                         <flux:accordion transition>
                             <flux:accordion.item>
                                 <flux:accordion.heading data-tour="cloudshare-share-heading">
-                                    <div class="flex min-w-0 flex-1 flex-wrap items-start justify-between gap-3 pr-2">
+                                    <div class="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-3 pe-2">
                                         <div class="min-w-0 text-left">
                                             <flux:heading size="md">{{ $share['name'] }}</flux:heading>
                                             <flux:text class="text-sm">erstellt {{ $share['created_at'] }}</flux:text>
                                         </div>
-                                        <div class="flex flex-wrap items-center gap-1">
+                                        <div class="flex flex-wrap items-center justify-end gap-1">
                                             @foreach ($this->shareHeaderBadges($share) as $badge)
                                                 <flux:badge :color="$badge['color']" size="sm" data-cloudshare-badge="{{ $badge['label'] }}">{{ $badge['label'] }}</flux:badge>
                                             @endforeach
@@ -1204,19 +1260,19 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                                             </flux:button>
                                         </div>
 
-                                        <dl class="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-700 dark:border-zinc-700" data-tour="cloudshare-share-properties">
+                                        <dl class="divide-y divide-[#d0e3f9] overflow-hidden rounded-lg border border-[#d0e3f9] dark:divide-white/10 dark:border-white/15" data-tour="cloudshare-share-properties">
                                             @foreach ([
                                                 ['label' => 'Passwortschutz', 'value' => $this->sharePasswordProtectionLabel($share), 'highlight' => null],
                                                 ['label' => 'Gültig bis', 'value' => $this->shareExpirationLabel($share), 'highlight' => $this->shareExpirationHighlight($share)],
                                                 ['label' => 'Gast-Upload', 'value' => $this->shareGuestUploadLabel($share), 'highlight' => null],
                                             ] as $property)
                                                 <div class="flex flex-col gap-0.5 px-3 py-2 sm:flex-row sm:items-baseline sm:gap-4">
-                                                    <dt class="w-40 shrink-0 text-sm font-medium text-zinc-500 dark:text-zinc-400">{{ $property['label'] }}</dt>
+                                                    <dt class="w-40 shrink-0 text-sm font-medium text-[#073070] dark:text-white/80">{{ $property['label'] }}</dt>
                                                     <dd @class([
                                                         'text-sm',
                                                         'font-medium text-red-700 dark:text-red-300' => $property['highlight'] === 'expired',
                                                         'font-medium text-amber-700 dark:text-amber-300' => $property['highlight'] === 'soon',
-                                                        'text-zinc-800 dark:text-zinc-200' => $property['highlight'] === null,
+                                                        'text-slate-600 dark:text-white/70' => $property['highlight'] === null,
                                                     ])>{{ $property['value'] }}</dd>
                                                 </div>
                                             @endforeach
@@ -1224,7 +1280,7 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
 
                                         @if (count($this->filesForShare($share['id'])) > 0)
                                             <div data-tour="cloudshare-files">
-                                                <flux:heading size="sm" class="mb-2">Dateien</flux:heading>
+                                                <h4 class="mb-2 text-sm font-semibold text-[#073070] dark:text-white">Dateien</h4>
                                                 <flux:table>
                                                     <flux:table.columns>
                                                         <flux:table.column>Name</flux:table.column>
@@ -1238,14 +1294,14 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                                                             <flux:table.row
                                                                 wire:key="file-{{ $file['id'] }}"
                                                                 @class([
-                                                                    'bg-blue-50! dark:bg-blue-800!' => $this->fileIsNewSinceOpen((string) $file['id']),
+                                                                    'bg-[#d0e3f9]/80! dark:bg-[#456494]/50!' => $this->fileIsNewSinceOpen((string) $file['id']),
                                                                 ])
                                                             >
                                                                 <flux:table.cell>
                                                                     <div class="flex flex-wrap items-center gap-2">
                                                                         <span>{{ $file['file'] }}</span>
                                                                         @if ($this->fileIsNewSinceOpen((string) $file['id']))
-                                                                            <flux:badge color="lime">Neu</flux:badge>
+                                                                            <span class="inline-flex items-center rounded-full bg-lime-100 px-2.5 py-0.5 text-xs font-semibold text-lime-800 dark:bg-lime-900/50 dark:text-lime-200">Neu</span>
                                                                         @endif
                                                                     </div>
                                                                 </flux:table.cell>
@@ -1256,7 +1312,7 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                                                                             <span class="cursor-help whitespace-nowrap tabular-nums">{{ $this->fileDateLabel($createdAt) }}</span>
                                                                         </flux:tooltip>
                                                                     @else
-                                                                        <span class="text-zinc-400">–</span>
+                                                                        <span class="text-slate-400">–</span>
                                                                     @endif
                                                                 </flux:table.cell>
                                                                 <flux:table.cell>
@@ -1266,7 +1322,7 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                                                                             <span class="cursor-help whitespace-nowrap tabular-nums">{{ $this->fileDateLabel($modifiedAt) }}</span>
                                                                         </flux:tooltip>
                                                                     @else
-                                                                        <span class="text-zinc-400">–</span>
+                                                                        <span class="text-slate-400">–</span>
                                                                     @endif
                                                                 </flux:table.cell>
                                                                 <flux:table.cell>{{ $this->formatFileSize($file['size']) }}</flux:table.cell>
@@ -1288,16 +1344,15 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                                                 </flux:table>
                                             </div>
                                         @else
-                                            <flux:text class="text-sm text-zinc-500">Keine Dateien</flux:text>
+                                            <flux:text class="text-sm">Keine Dateien</flux:text>
                                         @endif
                                     </div>
                                 </flux:accordion.content>
                             </flux:accordion.item>
                         </flux:accordion>
                     </flux:card>
-                    </div>
-                @endforeach
-            </div>
+                </div>
+            @endforeach
         </div>
 
         <flux:modal
@@ -1309,25 +1364,16 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
             :closable="! $tourDemo"
         >
             @if ($tourDemo && $tourDemoStepText !== '')
-                <flux:callout variant="secondary" icon="map" data-tour="cloudshare-in-modal-tour">
-                    <flux:callout.heading>{{ $tourDemoStepTitle !== '' ? $tourDemoStepTitle : 'Tour' }}</flux:callout.heading>
-                    <flux:callout.text>{{ $tourDemoStepText }}</flux:callout.text>
-                    <x-slot:actions>
-                        @if ($tourDemoShowBack)
-                            <flux:button type="button" size="sm" variant="ghost" x-on:click="window.IntranetTours?.back?.()">
-                                Zurück
-                            </flux:button>
-                        @endif
-                        <flux:button type="button" size="sm" variant="primary" x-on:click="window.IntranetTours?.next?.()">
-                            Weiter
-                        </flux:button>
-                    </x-slot:actions>
-                </flux:callout>
+                <x-intranet-app-cloudshare::tour-step
+                    data-tour="cloudshare-in-modal-tour"
+                    :title="$tourDemoStepTitle !== '' ? $tourDemoStepTitle : 'Tour'"
+                    :show-back="$tourDemoShowBack"
+                >{{ $tourDemoStepText }}</x-intranet-app-cloudshare::tour-step>
             @endif
 
             <div>
-                <flux:heading size="lg">Neue Freigabe</flux:heading>
-                <flux:text class="mt-1">Ordner in OneDrive anlegen und anonymen Link erzeugen.</flux:text>
+                <h2 class="text-lg font-semibold tracking-tight text-[#073070] dark:text-white">Neue Freigabe</h2>
+                <p class="mt-1 text-sm text-slate-600 dark:text-white/70">Ordner in OneDrive anlegen und anonymen Link erzeugen.</p>
             </div>
 
             <form wire:submit="createShare" class="space-y-4" data-tour="cloudshare-create-form">
@@ -1358,10 +1404,10 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
 
         <flux:modal wire:model="showExtendModal" class="md:w-[32rem] space-y-6">
             <div>
-                <flux:heading size="lg">Gültigkeit verlängern</flux:heading>
-                <flux:text class="mt-1">
+                <h2 class="text-lg font-semibold tracking-tight text-[#073070] dark:text-white">Gültigkeit verlängern</h2>
+                <p class="mt-1 text-sm text-slate-600 dark:text-white/70">
                     Neues Ablaufdatum für die Freigabe „{{ $extendShareName }}“ setzen.
-                </flux:text>
+                </p>
             </div>
 
             <form wire:submit="extendShareExpiration" class="space-y-4">
@@ -1391,25 +1437,16 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
             :closable="! $tourDemo"
         >
             @if ($tourDemo && $tourDemoStepText !== '')
-                <flux:callout variant="secondary" icon="map" data-tour="cloudshare-in-modal-tour">
-                    <flux:callout.heading>{{ $tourDemoStepTitle !== '' ? $tourDemoStepTitle : 'Tour' }}</flux:callout.heading>
-                    <flux:callout.text>{{ $tourDemoStepText }}</flux:callout.text>
-                    <x-slot:actions>
-                        @if ($tourDemoShowBack)
-                            <flux:button type="button" size="sm" variant="ghost" x-on:click="window.IntranetTours?.back?.()">
-                                Zurück
-                            </flux:button>
-                        @endif
-                        <flux:button type="button" size="sm" variant="primary" x-on:click="window.IntranetTours?.next?.()">
-                            Weiter
-                        </flux:button>
-                    </x-slot:actions>
-                </flux:callout>
+                <x-intranet-app-cloudshare::tour-step
+                    data-tour="cloudshare-in-modal-tour"
+                    :title="$tourDemoStepTitle !== '' ? $tourDemoStepTitle : 'Tour'"
+                    :show-back="$tourDemoShowBack"
+                >{{ $tourDemoStepText }}</x-intranet-app-cloudshare::tour-step>
             @endif
 
             <div>
-                <flux:heading size="lg">Datei hochladen</flux:heading>
-                <flux:text class="mt-1">Datei in die Freigabe „{{ $uploadFolderName }}“ hochladen.</flux:text>
+                <h2 class="text-lg font-semibold tracking-tight text-[#073070] dark:text-white">Datei hochladen</h2>
+                <p class="mt-1 text-sm text-slate-600 dark:text-white/70">Datei in die Freigabe „{{ $uploadFolderName }}“ hochladen.</p>
             </div>
 
             <form wire:submit="uploadToShare" class="space-y-4">
@@ -1451,29 +1488,20 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
             :closable="! $tourDemo"
         >
             @if ($tourDemo && $tourDemoStepText !== '')
-                <flux:callout variant="secondary" icon="map" data-tour="cloudshare-in-modal-tour">
-                    <flux:callout.heading>{{ $tourDemoStepTitle !== '' ? $tourDemoStepTitle : 'Tour' }}</flux:callout.heading>
-                    <flux:callout.text>{{ $tourDemoStepText }}</flux:callout.text>
-                    <x-slot:actions>
-                        @if ($tourDemoShowBack)
-                            <flux:button type="button" size="sm" variant="ghost" x-on:click="window.IntranetTours?.back?.()">
-                                Zurück
-                            </flux:button>
-                        @endif
-                        <flux:button type="button" size="sm" variant="primary" x-on:click="window.IntranetTours?.next?.()">
-                            Weiter
-                        </flux:button>
-                    </x-slot:actions>
-                </flux:callout>
+                <x-intranet-app-cloudshare::tour-step
+                    data-tour="cloudshare-in-modal-tour"
+                    :title="$tourDemoStepTitle !== '' ? $tourDemoStepTitle : 'Tour'"
+                    :show-back="$tourDemoShowBack"
+                >{{ $tourDemoStepText }}</x-intranet-app-cloudshare::tour-step>
             @endif
 
             <div>
-                <flux:heading size="lg">Freigabe teilen</flux:heading>
-                <flux:text class="mt-1">E-Mail-Vorschau und Versand an einen Empfänger.</flux:text>
+                <h2 class="text-lg font-semibold tracking-tight text-[#073070] dark:text-white">Freigabe teilen</h2>
+                <p class="mt-1 text-sm text-slate-600 dark:text-white/70">E-Mail-Vorschau und Versand an einen Empfänger.</p>
             </div>
 
             @if ($shareMailPreview !== '')
-                <div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700" data-tour="cloudshare-share-preview">
+                <div class="overflow-hidden rounded-xl border border-[#d0e3f9] dark:border-white/10" data-tour="cloudshare-share-preview">
                     <iframe
                         title="E-Mail-Vorschau"
                         src="data:text/html;charset=utf-8;base64,{{ base64_encode($shareMailPreview) }}"
@@ -1496,18 +1524,14 @@ new #[Title('Cloud Share - Freigaben')] #[Defer] class extends Component
                         />
                     </div>
                     @if ($sendPasswordViaBitwarden)
-                        <flux:callout icon="shield-check">
-                            <flux:callout.text>
-                                Das Passwort wird separat per Bitwarden Send übermittelt (nicht in der Freigabe-Mail).
-                            </flux:callout.text>
-                        </flux:callout>
+                        <x-intranet-app-cloudshare::note icon="shield-check">
+                            Das Passwort wird separat per Bitwarden Send übermittelt (nicht in der Freigabe-Mail).
+                        </x-intranet-app-cloudshare::note>
                     @endif
                 @elseif ($this->currentShareHasPasswordFlag())
-                    <flux:callout variant="warning" icon="exclamation-triangle">
-                        <flux:callout.text>
-                            Kein hinterlegtes Passwort — Bitwarden Send ist für diese ältere Freigabe nicht verfügbar.
-                        </flux:callout.text>
-                    </flux:callout>
+                    <x-intranet-app-cloudshare::note icon="exclamation-triangle" title="Kein hinterlegtes Passwort">
+                        Bitwarden Send ist für diese ältere Freigabe nicht verfügbar.
+                    </x-intranet-app-cloudshare::note>
                 @endif
 
                 <div class="flex justify-end gap-2">
