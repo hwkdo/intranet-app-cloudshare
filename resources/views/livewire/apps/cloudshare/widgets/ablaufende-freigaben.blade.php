@@ -2,6 +2,7 @@
 
 use Flux\Flux;
 use Hwkdo\IntranetAppCloudshare\Contracts\CloudshareServiceInterface;
+use Hwkdo\IntranetAppCloudshare\Events\CloudshareShareChanged;
 use Hwkdo\IntranetAppCloudshare\Support\CloudshareShareExpiration;
 use Hwkdo\MsGraphLaravel\Exceptions\MicrosoftDelegatedTokenMissingException;
 use Illuminate\Support\Facades\Auth;
@@ -25,6 +26,27 @@ new class extends Component
     public function mount(): void
     {
         abort_unless(Auth::user()?->can('see-app-cloudshare'), 403);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function getListeners(): array
+    {
+        $user = Auth::user();
+
+        if ($user === null || ! $user->can('see-app-cloudshare')) {
+            return [];
+        }
+
+        return [
+            'echo-private:App.Models.User.'.$user->getKey().',.cloudshare.share-changed' => 'refreshFromBroadcast',
+        ];
+    }
+
+    public function refreshFromBroadcast(): void
+    {
+        unset($this->expiringShares, $this->items);
     }
 
     public function itemLimit(): int
@@ -133,6 +155,7 @@ new class extends Component
             $this->extendShareName = '';
             $this->extendExpiresAt = '';
             unset($this->expiringShares, $this->items);
+            CloudshareShareChanged::dispatch((int) Auth::id());
             Flux::toast(variant: 'success', text: 'Gültigkeit wurde verlängert.');
         } catch (MicrosoftDelegatedTokenMissingException $e) {
             $this->showExtendModal = false;
